@@ -260,11 +260,7 @@ private fun SidePanel(
             SidebarView.EXPLORER -> ExplorerTree(state, actions)
             SidebarView.SEARCH -> SearchPanel(state, actions)
             SidebarView.GIT -> GitPanel(state, actions)
-            SidebarView.EXTENSIONS -> PanelPlaceholder(
-                "Declarative add-ons (grammars, themes, snippets) arrive in v1.x.\n\n" +
-                    "Kodelab never uses the Microsoft Marketplace; the catalogue will be " +
-                    "open-source add-ons and, later, Open VSX.",
-            )
+            SidebarView.EXTENSIONS -> ExtensionsPanel(state)
         }
     }
 }
@@ -386,6 +382,62 @@ private fun searchHitLine(
     pushStyle(androidx.compose.ui.text.SpanStyle(color = palette.textMuted))
     append(body.drop(e))
     pop()
+}
+
+@Composable
+private fun ExtensionsPanel(state: IdeUiState) {
+    val palette = LocalEditorPalette.current
+    if (state.workspaceUri == null) {
+        PanelPlaceholder("Open a folder to see its extensions.")
+        return
+    }
+    if (state.extensions.isEmpty()) {
+        PanelPlaceholder(
+            "No extensions in this workspace.\n\n" +
+                "Drop declarative add-ons under\n.kodelab/extensions/<id>/ with a\n" +
+                "kodelab-extension.json manifest (themes,\nsnippets, grammars, LSP recipes).\n\n" +
+                "Each is license-audited (SPDX); only permissively\nlicensed ones activate. Kodelab never uses the\n" +
+                "Microsoft Marketplace.",
+        )
+        return
+    }
+    LazyColumn(Modifier.fillMaxWidth()) {
+        items(state.extensions, key = { it.id }) { ext ->
+            Column(
+                Modifier.fillMaxWidth()
+                    .padding(vertical = 6.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Icon(
+                        Icons.Filled.Extension, contentDescription = null,
+                        tint = if (ext.allowed) palette.accentMuted else palette.warn,
+                        modifier = Modifier.size(14.dp),
+                    )
+                    Text(ext.name, color = palette.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, modifier = Modifier.weight(1f))
+                    Text(
+                        if (ext.allowed) "active" else "flagged",
+                        color = if (ext.allowed) palette.good else palette.warn, fontSize = 10.sp, fontWeight = FontWeight.SemiBold,
+                    )
+                }
+                val meta = listOfNotNull(
+                    "v${ext.version}",
+                    ext.publisher,
+                    ext.license ?: "no license",
+                ).joinToString(" · ")
+                Text(meta, color = palette.textMuted, fontSize = 10.sp, maxLines = 1)
+                ext.description?.let {
+                    Text(it, color = palette.textMuted, fontSize = 11.sp, lineHeight = 15.sp, maxLines = 3)
+                }
+                Text(ext.summary, color = palette.textMuted, fontSize = 11.sp)
+                if (!ext.allowed && ext.issues.isNotEmpty()) {
+                    Spacer(Modifier.height(2.dp))
+                    ext.issues.forEach { issue ->
+                        Text("• $issue", color = palette.warn, fontSize = 10.sp, lineHeight = 14.sp)
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable

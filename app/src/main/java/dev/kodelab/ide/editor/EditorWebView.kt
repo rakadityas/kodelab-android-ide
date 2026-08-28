@@ -61,6 +61,9 @@ class EditorController {
     fun showBuffer(tabId: String) = send("buffer.show", JSONObject().put("tabId", tabId))
     fun revealLine(tabId: String, line: Int) =
         send("buffer.reveal", JSONObject().put("tabId", tabId).put("line", line))
+    /** Insert a snippet (with $1/$0 tab stops) at the cursor via Monaco. */
+    fun insertSnippet(snippet: String) =
+        send("input.snippet", JSONObject().put("snippet", snippet))
     fun closeBuffer(tabId: String) = send("buffer.close", JSONObject().put("tabId", tabId))
     fun requestSave(tabId: String) = send("buffer.requestSave", JSONObject().put("tabId", tabId))
     fun markSaved(tabId: String) = send("buffer.markSaved", JSONObject().put("tabId", tabId))

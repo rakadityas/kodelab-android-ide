@@ -70,8 +70,15 @@ Priority P0 = product doesn't work without it, P1 = v1 must-have, P2 = v1.x, P3 
         and opens a file's unified diff in a tab. Porcelain parser (branch
         header, rename, quoting, categorisation) unit-tested. Degrades with
         clear messages when the sandbox/git/repo is missing.       -> REQ 5
-[ ] P2  Phase A extensions: declarative add-ons (grammars, themes, snippets,
-        LSP recipes) with per-file SPDX license audit           -> REQ 4
+[x] P2  Phase A extensions: declarative, DATA-ONLY add-ons (no code runs).
+        Manifest kodelab-extension.json under .kodelab/extensions/<id>/ contributes
+        themes/snippets/grammars/LSP-recipes. Per-extension AND per-file SPDX
+        audit (permissive allowlist; copyleft/unknown/undeclared -> flagged, never
+        auto-loaded). Accepted themes join the theme picker; snippets appear in the
+        palette (Monaco tab stops); grammars + LSP recipes parsed and listed for
+        later phases. Extensions side panel shows each add-on + audit status. No
+        Microsoft Marketplace. SPDX eval, manifest parse, audit all unit-tested.
+        Example in examples/extensions/.                        -> REQ 4
 [ ] P2  LSP client (monaco-languageclient) + server supervisor; servers are
         user-installed in the sandbox, never bundled            -> REQ 3
 [x] P2  Theme import — VsThemeImport parses the standard editor color-theme

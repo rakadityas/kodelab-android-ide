@@ -29,7 +29,8 @@ See [`docs/architecture.md`](docs/architecture.md) and [`docs/IP-SAFETY.md`](doc
 | Search across files: recursive SAF walk, results grouped by file, tap a hit to jump to the line | ✅ working |
 | Git panel over the sandbox CLI: branch/ahead-behind, stage/unstage, commit, open a file's diff | ✅ working (needs `apk add git`) |
 | Theme import: load a standard color-theme JSON → Kodelab palette (native + Monaco + terminal) | ✅ working |
-| LSP (language servers), declarative + Open VSX extensions | ⛔ next — see `requirement.txt` action items |
+| Declarative extensions (data-only): themes/snippets/grammars/LSP recipes with an SPDX license audit | ✅ working — see [`examples/extensions/`](examples/extensions/) |
+| LSP language servers (client + server supervisor), Open VSX catalogue | ⛔ next — see `requirement.txt` action items |
 
 ## Build
 

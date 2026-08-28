@@ -23,6 +23,19 @@ enum class SidebarView { EXPLORER, SEARCH, GIT, EXTENSIONS }
 /** A user-imported theme (from a JSON file under `.kodelab/themes`), resolved to a palette. */
 data class CustomTheme(val id: String, val name: String, val palette: EditorPalette)
 
+/** A declarative extension discovered in the workspace, as shown in the panel. */
+data class LoadedExtension(
+    val id: String,
+    val name: String,
+    val version: String,
+    val publisher: String?,
+    val license: String?,
+    val description: String?,
+    val allowed: Boolean,
+    val summary: String,
+    val issues: List<String>,
+)
+
 /** Why the Git panel can or can't show a status, mapped from GitService.RepoState. */
 enum class GitAvailability { UNKNOWN, SANDBOX_MISSING, GIT_MISSING, NOT_A_REPO, NO_PATH, READY, ERROR }
 
@@ -93,6 +106,8 @@ data class IdeUiState(
     val git: GitUiState = GitUiState(),
     /** Imported themes available in this workspace, keyed for selection. */
     val customThemes: List<CustomTheme> = emptyList(),
+    /** Declarative extensions discovered in this workspace. */
+    val extensions: List<LoadedExtension> = emptyList(),
 )
 
 /** Everything the UI can ask the ViewModel to do. */

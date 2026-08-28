@@ -168,6 +168,15 @@
         case "input.type":
           if (editor) { editor.focus(); editor.trigger("keyboard", "type", { text: p.text || "" }); }
           break;
+        case "input.snippet":
+          if (editor) {
+            editor.focus();
+            var snip = p.snippet || "";
+            var ctrl = editor.getContribution && editor.getContribution("snippetController2");
+            if (ctrl && ctrl.insert) ctrl.insert(snip);
+            else editor.trigger("keyboard", "type", { text: snip.replace(/\$\{?\d+:?/g, "").replace(/\}/g, "") });
+          }
+          break;
         case "buffer.markSaved": {
           var s = buffers[p.tabId];
           if (s) { s.savedVersionId = s.model.getAlternativeVersionId(); setDirty(p.tabId, false); }

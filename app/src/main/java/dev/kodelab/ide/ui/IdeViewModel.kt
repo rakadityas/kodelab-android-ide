@@ -5,6 +5,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.kodelab.ide.editor.EditorController
 import dev.kodelab.ide.editor.Languages
+import dev.kodelab.ide.ext.ExtensionAudit
+import dev.kodelab.ide.ext.ExtensionManifest
+import dev.kodelab.ide.ext.SnippetDef
 import dev.kodelab.ide.git.GitFileStatus
 import dev.kodelab.ide.git.GitService
 import dev.kodelab.ide.terminal.SandboxShell
@@ -87,14 +90,16 @@ class IdeViewModel(
             val roots = repo.listChildren(treeUri, null).map { e ->
                 FileNode(e.name, e.uri, e.docId, e.isDir, depth = 0)
             }
-            val themes = loadCustomThemes(treeUri)
+            val addons = loadAddons(treeUri)
+            activeSnippets = addons.snippets
             _state.update {
                 it.copy(
                     workspaceUri = treeUri,
                     workspaceName = name,
                     presets = presets,
                     fileTree = roots,
-                    customThemes = themes,
+                    customThemes = addons.customThemes,
+                    extensions = addons.extensions,
                     sidebarVisible = true,
                     sidebarView = SidebarView.EXPLORER,
                     statusText = "Opened $name",
@@ -543,6 +548,69 @@ class IdeViewModel(
             }
         }.distinctBy { it.id }
 
+    // ---------- declarative extensions (REQ 4) ----------
+
+    /** Snippets contributed by activated (audit-passed) extensions in this workspace. */
+    private var activeSnippets: List<SnippetDef> = emptyList()
+
+    private data class Addons(
+        val customThemes: List<CustomTheme>,
+        val extensions: List<LoadedExtension>,
+        val snippets: List<SnippetDef>,
+    )
+
+    /** Load imported themes + declarative extensions; audit each and activate only permissive ones. */
+    private suspend fun loadAddons(treeUri: android.net.Uri): Addons {
+        val fileThemes = loadCustomThemes(treeUri)
+        val loaded = mutableListOf<LoadedExtension>()
+        val extThemes = mutableListOf<CustomTheme>()
+        val snippets = mutableListOf<SnippetDef>()
+
+        for (raw in repo.listExtensions(treeUri)) {
+            val manifest = runCatching { ExtensionManifest.parse(raw.manifestJson) }.getOrElse { err ->
+                loaded += LoadedExtension(
+                    id = raw.dirName, name = raw.dirName, version = "?", publisher = null,
+                    license = null, description = null, allowed = false,
+                    summary = "unreadable manifest", issues = listOf(err.message ?: "invalid manifest"),
+                )
+                return@getOrElse null
+            } ?: continue
+
+            val audit = ExtensionAudit.audit(manifest)
+            loaded += LoadedExtension(
+                id = manifest.id, name = manifest.name, version = manifest.version,
+                publisher = manifest.publisher, license = manifest.license, description = manifest.description,
+                allowed = audit.allowed, summary = summarize(manifest),
+                issues = audit.issues.map { "${it.subject}: ${it.reason}" },
+            )
+            if (!audit.allowed) continue
+
+            snippets += manifest.snippets
+            for (t in manifest.themes) {
+                val json = raw.files[t.file] ?: continue
+                runCatching { VsThemeImport.parse(json, fallbackName = t.label) }.getOrNull()?.let { p ->
+                    extThemes += CustomTheme(
+                        id = "ext-${manifest.id}-${p.id}",
+                        name = "${t.label} · ${manifest.name}",
+                        palette = p.palette,
+                    )
+                }
+            }
+        }
+        val allThemes = (fileThemes + extThemes).distinctBy { it.id }.sortedBy { it.name.lowercase() }
+        return Addons(allThemes, loaded, snippets)
+    }
+
+    private fun summarize(m: ExtensionManifest): String {
+        val parts = buildList {
+            if (m.themes.isNotEmpty()) add("${m.themes.size} ${plural(m.themes.size, "theme")}")
+            if (m.snippets.isNotEmpty()) add("${m.snippets.size} ${plural(m.snippets.size, "snippet")}")
+            if (m.grammars.isNotEmpty()) add("${m.grammars.size} ${plural(m.grammars.size, "grammar")}")
+            if (m.lspRecipes.isNotEmpty()) add("${m.lspRecipes.size} LSP")
+        }
+        return if (parts.isEmpty()) "no contributions" else parts.joinToString(" · ")
+    }
+
     override fun requestImportTheme() { _events.tryEmit(IdeEvent.ImportThemeFile) }
 
     override fun importThemeFrom(uri: Uri) {
@@ -596,10 +664,13 @@ class IdeViewModel(
         val customThemes = _state.value.customThemes.map { t ->
             PaletteItem("theme.${t.id}", "Theme: ${t.name}", "imported", PaletteKind.THEME)
         }
+        val snippets = activeSnippets.mapIndexed { i, s ->
+            PaletteItem("snippet.$i", "Snippet: ${s.name}", s.description ?: s.prefix, PaletteKind.COMMAND)
+        }
         val files = flattenFiles(_state.value.fileTree).map { n ->
             PaletteItem("file.${n.docId}", n.name, "open file", PaletteKind.FILE)
         }
-        val all = commands + customThemes + files
+        val all = commands + customThemes + snippets + files
         if (query.isBlank()) return all.take(30)
         return all.filter { fuzzyMatch(query, it.label) }.take(30)
     }
@@ -626,6 +697,10 @@ class IdeViewModel(
             item.id == "cmd.toggleTerminal" -> togglePanel()
             item.id == "cmd.toggleSidebar" -> toggleSidebar()
             item.id == "cmd.importTheme" -> requestImportTheme()
+            item.id.startsWith("snippet.") -> {
+                val i = item.id.removePrefix("snippet.").toIntOrNull()
+                activeSnippets.getOrNull(i ?: -1)?.let { editor.insertSnippet(it.body) }
+            }
             item.id.startsWith("theme.") -> setTheme(item.id.removePrefix("theme."))
             item.id.startsWith("file.") -> {
                 val docId = item.id.removePrefix("file.")
