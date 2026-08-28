@@ -30,7 +30,8 @@ See [`docs/architecture.md`](docs/architecture.md) and [`docs/IP-SAFETY.md`](doc
 | Git panel over the sandbox CLI: branch/ahead-behind, stage/unstage, commit, open a file's diff | ✅ working (needs `apk add git`) |
 | Theme import: load a standard color-theme JSON → Kodelab palette (native + Monaco + terminal) | ✅ working |
 | Declarative extensions (data-only): themes/snippets/grammars/LSP recipes with an SPDX license audit | ✅ working — see [`examples/extensions/`](examples/extensions/) |
-| LSP language servers (client + server supervisor), Open VSX catalogue | ⛔ next — see `requirement.txt` action items |
+| LSP client + server supervisor: framing/JSON-RPC, sandbox transport, diagnostics → Monaco markers | 🟡 wired (protocol unit-tested; a live server run + completion/hover need on-device validation) |
+| Open VSX catalogue, DAP, remote/SSH | ⛔ later — see `requirement.txt` action items |
 
 ## Build
 

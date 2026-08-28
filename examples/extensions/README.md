@@ -54,5 +54,7 @@ See [`kodelab.sample-pack/kodelab-extension.json`](kodelab.sample-pack/kodelab-e
   Monaco tab stops (`$1`, `$0`). Works today.
 - **grammars** — language/extension registration. Parsed and listed now; full
   TextMate tokenization arrives with the grammar engine.
-- **languageServers** — how to install and launch a server in the Linux sandbox.
-  Parsed and listed now; consumed by the LSP client when it lands.
+- **languageServers** — how to install (`install`, run once in the terminal) and
+  launch (`command`) a server in the Linux sandbox. The LSP client starts it via
+  *Start language server* in the command palette; diagnostics render as Monaco
+  markers. Completion/hover and live-edit sync are in progress.

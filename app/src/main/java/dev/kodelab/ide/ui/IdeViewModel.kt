@@ -7,9 +7,11 @@ import dev.kodelab.ide.editor.EditorController
 import dev.kodelab.ide.editor.Languages
 import dev.kodelab.ide.ext.ExtensionAudit
 import dev.kodelab.ide.ext.ExtensionManifest
+import dev.kodelab.ide.ext.LspRecipe
 import dev.kodelab.ide.ext.SnippetDef
 import dev.kodelab.ide.git.GitFileStatus
 import dev.kodelab.ide.git.GitService
+import dev.kodelab.ide.lsp.LspServerSupervisor
 import dev.kodelab.ide.terminal.SandboxShell
 import dev.kodelab.ide.terminal.TerminalHost
 import dev.kodelab.ide.theme.KodelabThemes
@@ -92,6 +94,7 @@ class IdeViewModel(
             }
             val addons = loadAddons(treeUri)
             activeSnippets = addons.snippets
+            activeLspRecipes = addons.lspRecipes
             _state.update {
                 it.copy(
                     workspaceUri = treeUri,
@@ -552,11 +555,14 @@ class IdeViewModel(
 
     /** Snippets contributed by activated (audit-passed) extensions in this workspace. */
     private var activeSnippets: List<SnippetDef> = emptyList()
+    /** LSP recipes from activated extensions, one per languageId (last wins). */
+    private var activeLspRecipes: Map<String, LspRecipe> = emptyMap()
 
     private data class Addons(
         val customThemes: List<CustomTheme>,
         val extensions: List<LoadedExtension>,
         val snippets: List<SnippetDef>,
+        val lspRecipes: Map<String, LspRecipe>,
     )
 
     /** Load imported themes + declarative extensions; audit each and activate only permissive ones. */
@@ -565,6 +571,7 @@ class IdeViewModel(
         val loaded = mutableListOf<LoadedExtension>()
         val extThemes = mutableListOf<CustomTheme>()
         val snippets = mutableListOf<SnippetDef>()
+        val recipes = LinkedHashMap<String, LspRecipe>()
 
         for (raw in repo.listExtensions(treeUri)) {
             val manifest = runCatching { ExtensionManifest.parse(raw.manifestJson) }.getOrElse { err ->
@@ -586,6 +593,7 @@ class IdeViewModel(
             if (!audit.allowed) continue
 
             snippets += manifest.snippets
+            manifest.lspRecipes.forEach { recipes[it.languageId] = it }
             for (t in manifest.themes) {
                 val json = raw.files[t.file] ?: continue
                 runCatching { VsThemeImport.parse(json, fallbackName = t.label) }.getOrNull()?.let { p ->
@@ -598,7 +606,7 @@ class IdeViewModel(
             }
         }
         val allThemes = (fileThemes + extThemes).distinctBy { it.id }.sortedBy { it.name.lowercase() }
-        return Addons(allThemes, loaded, snippets)
+        return Addons(allThemes, loaded, snippets, recipes)
     }
 
     private fun summarize(m: ExtensionManifest): String {
@@ -609,6 +617,73 @@ class IdeViewModel(
             if (m.lspRecipes.isNotEmpty()) add("${m.lspRecipes.size} LSP")
         }
         return if (parts.isEmpty()) "no contributions" else parts.joinToString(" · ")
+    }
+
+    // ---------- language servers (REQ 3: LSP over the sandbox) ----------
+
+    private var supervisor: LspServerSupervisor? = null
+    /** LSP `file://` uri -> open tab id, so diagnostics land on the right buffer. */
+    private val lspUriToTab = HashMap<String, String>()
+
+    private fun ensureSupervisor(): LspServerSupervisor? {
+        supervisor?.let { return it }
+        val sb = TerminalHost.service.value?.sandbox ?: return null
+        val s = LspServerSupervisor(sb)
+        supervisor = s
+        viewModelScope.launch {
+            s.diagnostics.collect { pub ->
+                lspUriToTab[pub.uri]?.let { tabId -> editor.pushDiagnostics(tabId, pub.diagnostics) }
+            }
+        }
+        viewModelScope.launch {
+            s.statuses.collect { statuses ->
+                statuses.values.maxByOrNull { it.state.ordinal }?.let { st ->
+                    val suffix = st.message?.let { " — $it" } ?: ""
+                    _state.update { it.copy(statusText = "LSP ${st.languageId}: ${st.state.name.lowercase()}$suffix") }
+                }
+            }
+        }
+        return s
+    }
+
+    /** True when the active file's language has a matching LSP recipe (drives the palette entry). */
+    private fun activeRecipe(): LspRecipe? {
+        val tab = _state.value.tabs.firstOrNull { it.id == _state.value.activeTabId } ?: return null
+        return activeLspRecipes[tab.languageId]
+    }
+
+    override fun startLanguageServer() {
+        val tab = _state.value.tabs.firstOrNull { it.id == _state.value.activeTabId } ?: return
+        val recipe = activeLspRecipes[tab.languageId] ?: run {
+            _state.update { it.copy(statusText = "No language-server recipe for ${tab.languageId}") }
+            return
+        }
+        val sup = ensureSupervisor() ?: run {
+            _state.update { it.copy(statusText = "Install the Linux sandbox first (terminal → Install Linux)") }
+            return
+        }
+        if (!sup.installed) {
+            _state.update { it.copy(statusText = "Install the Linux sandbox first, then apk add the server") }
+            return
+        }
+        val workspaceHost = _state.value.workspaceUri?.let { WorkspaceRepository.localPathOf(it) }
+        if (!sup.start(recipe, workspaceHost)) return
+
+        val uri = tab.uri ?: return
+        val hostPath = WorkspaceRepository.localPathOfDocument(uri) ?: return
+        val lspUri = "file://$hostPath"
+        viewModelScope.launch {
+            val text = repo.readText(uri) ?: return@launch
+            val client = sup.client(tab.languageId) ?: return@launch
+            client.initialized.first { it } // wait for the handshake
+            lspUriToTab[lspUri] = tab.id
+            client.didOpen(lspUri, tab.languageId, 1, text)
+        }
+    }
+
+    override fun onCleared() {
+        supervisor?.stopAll()
+        super.onCleared()
     }
 
     override fun requestImportTheme() { _events.tryEmit(IdeEvent.ImportThemeFile) }
@@ -667,10 +742,13 @@ class IdeViewModel(
         val snippets = activeSnippets.mapIndexed { i, s ->
             PaletteItem("snippet.$i", "Snippet: ${s.name}", s.description ?: s.prefix, PaletteKind.COMMAND)
         }
+        val lsp = activeRecipe()?.let { r ->
+            listOf(PaletteItem("cmd.startLsp", "Start language server (${r.languageId})", "run the server in the sandbox", PaletteKind.COMMAND))
+        } ?: emptyList()
         val files = flattenFiles(_state.value.fileTree).map { n ->
             PaletteItem("file.${n.docId}", n.name, "open file", PaletteKind.FILE)
         }
-        val all = commands + customThemes + snippets + files
+        val all = commands + customThemes + snippets + lsp + files
         if (query.isBlank()) return all.take(30)
         return all.filter { fuzzyMatch(query, it.label) }.take(30)
     }
@@ -697,6 +775,7 @@ class IdeViewModel(
             item.id == "cmd.toggleTerminal" -> togglePanel()
             item.id == "cmd.toggleSidebar" -> toggleSidebar()
             item.id == "cmd.importTheme" -> requestImportTheme()
+            item.id == "cmd.startLsp" -> startLanguageServer()
             item.id.startsWith("snippet.") -> {
                 val i = item.id.removePrefix("snippet.").toIntOrNull()
                 activeSnippets.getOrNull(i ?: -1)?.let { editor.insertSnippet(it.body) }

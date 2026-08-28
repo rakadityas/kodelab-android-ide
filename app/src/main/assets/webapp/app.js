@@ -155,6 +155,13 @@
         case "buffer.open":     openBuffer(p.tabId, p.text || "", p.languageId); break;
         case "buffer.show":     showBuffer(p.tabId); break;
         case "buffer.reveal":   revealLine(p.tabId, p.line || 1); break;
+        case "lsp.diagnostics": {
+          var lb = buffers[p.tabId];
+          if (lb && window.monaco) {
+            window.monaco.editor.setModelMarkers(lb.model, "kodelab-lsp", p.markers || []);
+          }
+          break;
+        }
         case "buffer.close":    closeBuffer(p.tabId); break;
         case "buffer.requestSave": {
           var b = buffers[p.tabId];

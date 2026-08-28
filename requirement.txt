@@ -79,8 +79,17 @@ Priority P0 = product doesn't work without it, P1 = v1 must-have, P2 = v1.x, P3 
         later phases. Extensions side panel shows each add-on + audit status. No
         Microsoft Marketplace. SPDX eval, manifest parse, audit all unit-tested.
         Example in examples/extensions/.                        -> REQ 4
-[ ] P2  LSP client (monaco-languageclient) + server supervisor; servers are
-        user-installed in the sandbox, never bundled            -> REQ 3
+[~] P2  LSP client + server supervisor. DONE: LspProtocol (Content-Length
+        framing + JSON-RPC, unit-tested incl. partial/multi-message decode),
+        LspClient (initialize/didOpen/didChange/didClose, publishDiagnostics ->
+        flow, request/response + answers server requests), SandboxProcess
+        (long-lived non-PTY sandbox transport with raw framed stdio),
+        LspServerSupervisor (per-language lifecycle + status + diagnostics),
+        Monaco diagnostics via setModelMarkers (LSP 0-based -> Monaco 1-based,
+        severity mapped), "Start language server" palette command wired to the
+        active file's LSP recipe (servers user-installed via apk, never bundled).
+        PENDING (needs a device): validate an end-to-end server run, live
+        didChange on edits, and completion/hover Monaco providers.  -> REQ 3
 [x] P2  Theme import — VsThemeImport parses the standard editor color-theme
         JSON *format* (name/type/colors) into Kodelab's 14-token palette, with
         luminance-based dark/light inference and sensible derivations for

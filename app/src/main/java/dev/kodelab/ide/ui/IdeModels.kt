@@ -138,6 +138,8 @@ interface IdeActions {
     fun requestImportTheme()
     /** Parse + persist a picked theme JSON and switch to it. */
     fun importThemeFrom(uri: Uri)
+    /** Start the language server whose recipe matches the active file's language. */
+    fun startLanguageServer()
     fun openPalette()
     fun closePalette()
     fun paletteQueryChanged(query: String)

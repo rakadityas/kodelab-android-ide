@@ -11,8 +11,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewClientCompat
+import dev.kodelab.ide.lsp.LspDiagnostic
 import dev.kodelab.ide.theme.EditorPalette
 import dev.kodelab.ide.workspace.WorkspacePresets
+import org.json.JSONArray
 import org.json.JSONObject
 
 private const val APP_ORIGIN = "https://appassets.androidplatform.net"
@@ -57,6 +59,30 @@ class EditorController {
             "buffer.open",
             JSONObject().put("tabId", tabId).put("text", text).put("languageId", languageId),
         )
+
+    /** Render LSP diagnostics as Monaco markers on a tab (converts to 1-based coords + severity). */
+    fun pushDiagnostics(tabId: String, diagnostics: List<LspDiagnostic>) {
+        val markers = JSONArray()
+        diagnostics.forEach { d ->
+            markers.put(
+                JSONObject()
+                    .put("startLineNumber", d.startLine + 1).put("startColumn", d.startChar + 1)
+                    .put("endLineNumber", d.endLine + 1).put("endColumn", d.endChar + 1)
+                    .put("message", d.message)
+                    .put("severity", monacoSeverity(d.severity))
+                    .put("source", d.source ?: "lsp"),
+            )
+        }
+        send("lsp.diagnostics", JSONObject().put("tabId", tabId).put("markers", markers))
+    }
+
+    /** LSP severity (1 Error…4 Hint) -> Monaco MarkerSeverity (Error 8, Warning 4, Info 2, Hint 1). */
+    private fun monacoSeverity(lsp: Int): Int = when (lsp) {
+        1 -> 8
+        2 -> 4
+        3 -> 2
+        else -> 1
+    }
 
     fun showBuffer(tabId: String) = send("buffer.show", JSONObject().put("tabId", tabId))
     fun revealLine(tabId: String, line: Int) =
