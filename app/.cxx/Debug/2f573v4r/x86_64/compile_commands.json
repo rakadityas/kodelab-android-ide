@@ -1,7 +1,0 @@
-[
-{
-  "directory": "/Users/rakadityas/kodelab-android-ide/app/.cxx/Debug/2f573v4r/x86_64",
-  "command": "/Users/rakadityas/Library/Android/sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/darwin-x86_64/bin/clang --target=x86_64-none-linux-android29 --sysroot=/Users/rakadityas/Library/Android/sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/darwin-x86_64/sysroot -Dkodelab_pty_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -fno-limit-debug-info  -fPIC -o CMakeFiles/kodelab_pty.dir/kodelab_pty.c.o -c /Users/rakadityas/kodelab-android-ide/app/src/main/cpp/kodelab_pty.c",
-  "file": "/Users/rakadityas/kodelab-android-ide/app/src/main/cpp/kodelab_pty.c"
-}
-]

@@ -81,6 +81,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import dev.kodelab.ide.editor.EditorWebView
 import dev.kodelab.ide.terminal.SandboxInstaller
+import dev.kodelab.ide.terminal.TerminalEmulator
 import dev.kodelab.ide.terminal.TerminalHost
 import dev.kodelab.ide.theme.LocalEditorPalette
 import dev.kodelab.ide.workspace.WorkspaceRepository
@@ -483,13 +484,13 @@ private fun TerminalPanel(state: IdeUiState, modifier: Modifier) {
     val session = remember(service, sandboxStatus is SandboxInstaller.Status.Installed) {
         TerminalHost.defaultSession(cwd)
     }
-    val transcript by (session?.transcript
-        ?: remember { kotlinx.coroutines.flow.MutableStateFlow("connecting to terminal service…") })
+    val screen by (session?.screen
+        ?: remember { kotlinx.coroutines.flow.MutableStateFlow(emptyList<List<TerminalEmulator.Span>>()) })
         .collectAsState()
 
     var input by remember { mutableStateOf("") }
     val scroll = rememberScrollState()
-    LaunchedEffect(transcript) { scroll.scrollTo(scroll.maxValue) }
+    LaunchedEffect(screen) { scroll.scrollTo(scroll.maxValue) }
 
     Column(modifier.background(palette.chrome)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -534,14 +535,23 @@ private fun TerminalPanel(state: IdeUiState, modifier: Modifier) {
         }
         Column(
             Modifier.weight(1f).fillMaxWidth().background(palette.surface)
-                .verticalScroll(scroll).padding(8.dp),
+                .verticalScroll(scroll)
+                .horizontalScroll(rememberScrollState())
+                .padding(8.dp),
         ) {
+            if (screen.isEmpty()) {
+                Text(
+                    "connecting to terminal service…",
+                    color = palette.textMuted,
+                    fontFamily = FontFamily.Monospace, fontSize = 12.sp,
+                )
+            }
             Text(
-                transcript,
-                color = palette.textPrimary,
+                text = remember(screen, palette.isDark) { screenToAnnotated(screen, palette) },
                 fontFamily = FontFamily.Monospace,
                 fontSize = 12.sp,
                 lineHeight = 16.sp,
+                softWrap = false,
             )
         }
         Row(
@@ -571,6 +581,52 @@ private fun TerminalPanel(state: IdeUiState, modifier: Modifier) {
                 }),
                 modifier = Modifier.weight(1f),
             )
+        }
+    }
+}
+
+/** Standard 16-colour ANSI palette (indices 0..15), tuned for legibility. */
+private val AnsiColors = intArrayOf(
+    0xFF3B4048.toInt(), 0xFFE06C6C.toInt(), 0xFF6FB86F.toInt(), 0xFFD5A45C.toInt(),
+    0xFF5C9FD6.toInt(), 0xFFB57EDC.toInt(), 0xFF4FB6C4.toInt(), 0xFFC5CDD3.toInt(),
+    0xFF5A626C.toInt(), 0xFFF08787.toInt(), 0xFF8FD08F.toInt(), 0xFFE8C07A.toInt(),
+    0xFF7FB8E8.toInt(), 0xFFCB9CE8.toInt(), 0xFF6FD4E0.toInt(), 0xFFF0F4F6.toInt(),
+)
+
+private fun ansiColor(index: Int): Color = when {
+    index in 0..15 -> Color(AnsiColors[index])
+    index in 16..231 -> { // 6x6x6 colour cube
+        val n = index - 16
+        val r = (n / 36) % 6; val g = (n / 6) % 6; val b = n % 6
+        fun ch(v: Int) = if (v == 0) 0 else 55 + v * 40
+        Color(ch(r), ch(g), ch(b))
+    }
+    index in 232..255 -> { val v = 8 + (index - 232) * 10; Color(v, v, v) }
+    else -> Color.Unspecified
+}
+
+private fun screenToAnnotated(
+    screen: List<List<TerminalEmulator.Span>>,
+    palette: dev.kodelab.ide.theme.EditorPalette,
+): androidx.compose.ui.text.AnnotatedString = androidx.compose.ui.text.buildAnnotatedString {
+    screen.forEachIndexed { i, line ->
+        if (i > 0) append('\n')
+        line.forEach { span ->
+            val fg = when {
+                span.style.reverse && span.style.bg >= 0 -> ansiColor(span.style.bg)
+                span.style.fg >= 0 -> ansiColor(span.style.fg)
+                else -> palette.textPrimary
+            }
+            addStyle(
+                androidx.compose.ui.text.SpanStyle(
+                    color = fg,
+                    fontWeight = if (span.style.bold) FontWeight.Bold else null,
+                    textDecoration = if (span.style.underline)
+                        androidx.compose.ui.text.style.TextDecoration.Underline else null,
+                ),
+                length, length + span.text.length,
+            )
+            append(span.text)
         }
     }
 }

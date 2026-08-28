@@ -23,8 +23,9 @@ import java.io.OutputStream
  * forkpty) — prompts, echo, ^C and job control all behave like a terminal.
  * Falls back to a plain ProcessBuilder pipe if the native lib is missing.
  *
- * Rendering is a plain monospace view for now, so ANSI escape sequences are
- * stripped from the transcript; the xterm.js surface replaces this later.
+ * Output is fed through [TerminalEmulator], which interprets ANSI colour/SGR and
+ * `\r` line-overwrite so tools like `apk` render in colour with in-place progress
+ * bars. The UI observes [screen]; [transcript] stays as a plain-text mirror.
  */
 class ShellSession(
     val id: String,
@@ -36,7 +37,13 @@ class ShellSession(
     private val _output = MutableSharedFlow<String>(extraBufferCapacity = 256)
     val output: SharedFlow<String> = _output.asSharedFlow()
 
-    /** Scrollback so panels that bind late (new windows) still see history. */
+    private val emulator = TerminalEmulator()
+
+    /** Styled screen for the UI — one list of spans per line. */
+    private val _screen = MutableStateFlow<List<List<TerminalEmulator.Span>>>(emptyList())
+    val screen: StateFlow<List<List<TerminalEmulator.Span>>> = _screen.asStateFlow()
+
+    /** Plain-text mirror (scrollback) so late-binding panels still see history. */
     private val _transcript = MutableStateFlow("")
     val transcript: StateFlow<String> = _transcript.asStateFlow()
 
@@ -49,11 +56,11 @@ class ShellSession(
     private var process: Process? = null
     private var writer: OutputStream? = null
 
+    @Synchronized
     private fun append(chunk: String) {
-        _transcript.update { t ->
-            val next = t + chunk
-            if (next.length > MAX_SCROLLBACK) next.takeLast(MAX_SCROLLBACK) else next
-        }
+        emulator.feed(chunk)
+        _screen.value = emulator.render()
+        _transcript.value = emulator.plainText()
     }
 
     fun start() {
@@ -167,11 +174,9 @@ class ShellSession(
                 while (isActive) {
                     val n = input.read(buf)
                     if (n < 0) break
-                    val chunk = stripAnsi(String(buf, 0, n))
-                    if (chunk.isNotEmpty()) {
-                        append(chunk)
-                        _output.emit(chunk)
-                    }
+                    val chunk = String(buf, 0, n)
+                    append(chunk)
+                    _output.emit(chunk)
                 }
             }
         }
@@ -205,16 +210,5 @@ class ShellSession(
         runCatching { process?.destroy() }
         runCatching { ptyFd?.close() }
         scope.cancel()
-    }
-
-    companion object {
-        private const val MAX_SCROLLBACK = 200_000
-
-        // CSI, OSC and single-char escapes; keeps the plain-text view readable.
-        private val ANSI = Regex("\\u001B\\[[0-?]*[ -/]*[@-~]|\\u001B\\][^\\u0007\\u001B]*(\\u0007|\\u001B\\\\)|\\u001B[@-_]")
-
-        fun stripAnsi(s: String): String = ANSI.replace(s, "")
-            .replace("\r\n", "\n")
-            .replace('\r', '\n')
     }
 }
