@@ -62,14 +62,20 @@ Priority P0 = product doesn't work without it, P1 = v1 must-have, P2 = v1.x, P3 
         files+hits, cancellable), results grouped by file with line numbers +
         highlighted match; tap a hit to open the file and jump to the line
         (Monaco revealLineInCenter). Matcher/skip logic unit-tested.  -> REQ 1
-[ ] P2  Git panel: status/diff/commit over the CLI in the sandbox
+[x] P2  Git panel: status/diff/stage/commit over the sandbox CLI. SandboxShell
+        runs one-shot proot commands with captured stdout/stderr; GitService
+        wraps git (rev-parse/status/add/reset/commit/diff), binding the
+        workspace host path into proot. Panel shows branch + ahead/behind,
+        Staged/Changes sections, per-file stage/unstage, stage-all, commit box,
+        and opens a file's unified diff in a tab. Porcelain parser (branch
+        header, rename, quoting, categorisation) unit-tested. Degrades with
+        clear messages when the sandbox/git/repo is missing.       -> REQ 5
 [ ] P2  Phase A extensions: declarative add-ons (grammars, themes, snippets,
         LSP recipes) with per-file SPDX license audit           -> REQ 4
 [ ] P2  LSP client (monaco-languageclient) + server supervisor; servers are
         user-installed in the sandbox, never bundled            -> REQ 3
 [ ] P2  Theme import: read standard theme-JSON *format* (never copy the
         contents of proprietary bundled themes)                 -> REQ 2/IP
-[ ] P2  Split editor groups (side-by-side tabs in one window)   -> REQ 6
 
 --- P3 · later ---------------------------------------------------------------
 [ ] P3  Kodelab plugin API (first-party, sandboxed workers, signed)  -> REQ 4

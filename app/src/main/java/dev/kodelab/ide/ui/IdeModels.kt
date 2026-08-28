@@ -1,6 +1,8 @@
 package dev.kodelab.ide.ui
 
 import android.net.Uri
+import dev.kodelab.ide.git.GitFileStatus
+import dev.kodelab.ide.git.GitStatus
 import dev.kodelab.ide.workspace.FileMatches
 import dev.kodelab.ide.workspace.SearchMatch
 import dev.kodelab.ide.workspace.WorkspacePresets
@@ -16,6 +18,19 @@ data class EditorTab(
 )
 
 enum class SidebarView { EXPLORER, SEARCH, GIT, EXTENSIONS }
+
+/** Why the Git panel can or can't show a status, mapped from GitService.RepoState. */
+enum class GitAvailability { UNKNOWN, SANDBOX_MISSING, GIT_MISSING, NOT_A_REPO, NO_PATH, READY, ERROR }
+
+data class GitUiState(
+    val availability: GitAvailability = GitAvailability.UNKNOWN,
+    val status: GitStatus? = null,
+    val message: String? = null,
+    val loading: Boolean = false,
+    val commitMessage: String = "",
+    /** Path of a file with an operation (stage/unstage) in flight, for disabling its row. */
+    val busyPath: String? = null,
+)
 
 data class FileNode(
     val name: String,
@@ -70,6 +85,8 @@ data class IdeUiState(
     val searching: Boolean = false,
     /** null = no search run yet; otherwise a "12 results in 4 files" style summary. */
     val searchSummary: String? = null,
+    // --- git panel ---
+    val git: GitUiState = GitUiState(),
 )
 
 /** Everything the UI can ask the ViewModel to do. */
@@ -86,6 +103,14 @@ interface IdeActions {
     /** Run the search now (e.g. keyboard "search" action); no-op if the query is blank. */
     fun runSearch()
     fun openSearchHit(file: FileMatches, match: SearchMatch)
+    // --- git panel ---
+    fun gitRefresh()
+    fun gitStage(file: GitFileStatus)
+    fun gitUnstage(file: GitFileStatus)
+    fun gitStageAll()
+    fun gitCommitMessageChanged(message: String)
+    fun gitCommit()
+    fun openGitDiff(file: GitFileStatus, staged: Boolean)
     fun setTheme(themeId: String)
     fun cycleTheme()
     fun openPalette()

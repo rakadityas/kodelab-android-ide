@@ -27,6 +27,7 @@ See [`docs/architecture.md`](docs/architecture.md) and [`docs/IP-SAFETY.md`](doc
 | Multi-window: “New window” → separate task, same terminal service | ✅ working |
 | ANSI colour terminal (SGR/256-colour, `\r` in-place progress bars) via a small VT emulator | ✅ working |
 | Search across files: recursive SAF walk, results grouped by file, tap a hit to jump to the line | ✅ working |
+| Git panel over the sandbox CLI: branch/ahead-behind, stage/unstage, commit, open a file's diff | ✅ working (needs `apk add git`) |
 | LSP (language servers), declarative + Open VSX extensions | ⛔ next — see `requirement.txt` action items |
 
 ## Build

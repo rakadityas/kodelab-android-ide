@@ -5,6 +5,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.kodelab.ide.editor.EditorController
 import dev.kodelab.ide.editor.Languages
+import dev.kodelab.ide.git.GitFileStatus
+import dev.kodelab.ide.git.GitService
+import dev.kodelab.ide.terminal.SandboxShell
+import dev.kodelab.ide.terminal.TerminalHost
 import dev.kodelab.ide.theme.KodelabThemes
 import dev.kodelab.ide.workspace.FileMatches
 import dev.kodelab.ide.workspace.SearchMatch
@@ -331,8 +335,10 @@ class IdeViewModel(
 
     override fun toggleSidebar() = _state.update { it.copy(sidebarVisible = !it.sidebarVisible) }
     override fun togglePanel() = _state.update { it.copy(panelVisible = !it.panelVisible) }
-    override fun setSidebarView(view: SidebarView) =
+    override fun setSidebarView(view: SidebarView) {
         _state.update { it.copy(sidebarView = view, sidebarVisible = true) }
+        if (view == SidebarView.GIT) gitRefresh()
+    }
 
     // ---------- search across files (REQ 1) ----------
 
@@ -378,6 +384,129 @@ class IdeViewModel(
         openDocument(file.uri, file.name, revealLine = match.line)
 
     private fun plural(n: Int, word: String) = if (n == 1) word else word + "s"
+
+    // ---------- git panel (REQ 5: git over the sandbox CLI) ----------
+
+    /** Stateless; rebuilt each use so it always sees the current sandbox binding. */
+    private fun gitService(): GitService? =
+        TerminalHost.service.value?.sandbox?.let { GitService(SandboxShell(it)) }
+
+    private fun hostPath(): String? =
+        _state.value.workspaceUri?.let { WorkspaceRepository.localPathOf(it) }
+
+    override fun gitRefresh() {
+        val svc = gitService()
+        if (svc == null) {
+            _state.update { it.copy(git = it.git.copy(availability = GitAvailability.SANDBOX_MISSING, loading = false)) }
+            return
+        }
+        _state.update { it.copy(git = it.git.copy(loading = true)) }
+        viewModelScope.launch {
+            val result = svc.refresh(hostPath())
+            _state.update { it.copy(git = it.git.applyRepoState(result)) }
+        }
+    }
+
+    private fun GitUiState.applyRepoState(state: GitService.RepoState): GitUiState = when (state) {
+        GitService.RepoState.SandboxMissing ->
+            copy(availability = GitAvailability.SANDBOX_MISSING, status = null, message = null, loading = false)
+        GitService.RepoState.GitMissing ->
+            copy(availability = GitAvailability.GIT_MISSING, status = null, message = null, loading = false)
+        GitService.RepoState.NotARepo ->
+            copy(availability = GitAvailability.NOT_A_REPO, status = null, message = null, loading = false)
+        GitService.RepoState.NoPath ->
+            copy(availability = GitAvailability.NO_PATH, status = null, message = null, loading = false)
+        is GitService.RepoState.Ready ->
+            copy(availability = GitAvailability.READY, status = state.status, message = null, loading = false, busyPath = null)
+        is GitService.RepoState.Error ->
+            copy(availability = GitAvailability.ERROR, message = state.message, loading = false)
+    }
+
+    /** Run a per-file git op, then refresh; marks the row busy while in flight. */
+    private fun gitFileOp(path: String, op: suspend (GitService, String) -> SandboxShell.Result) {
+        val svc = gitService() ?: return
+        val host = hostPath() ?: return
+        _state.update { it.copy(git = it.git.copy(busyPath = path)) }
+        viewModelScope.launch {
+            val r = op(svc, host)
+            if (!r.ok) {
+                _state.update { it.copy(git = it.git.copy(message = r.message(), busyPath = null), statusText = "git: ${r.message()}") }
+                return@launch
+            }
+            val refreshed = svc.refresh(host)
+            _state.update { it.copy(git = it.git.applyRepoState(refreshed)) }
+        }
+    }
+
+    override fun gitStage(file: GitFileStatus) =
+        gitFileOp(file.path) { s, h -> s.stage(h, file.path) }
+
+    override fun gitUnstage(file: GitFileStatus) =
+        gitFileOp(file.path) { s, h -> s.unstage(h, file.path) }
+
+    override fun gitStageAll() {
+        val svc = gitService() ?: return
+        val host = hostPath() ?: return
+        _state.update { it.copy(git = it.git.copy(loading = true)) }
+        viewModelScope.launch {
+            svc.stageAll(host)
+            _state.update { it.copy(git = it.git.applyRepoState(svc.refresh(host))) }
+        }
+    }
+
+    override fun gitCommitMessageChanged(message: String) =
+        _state.update { it.copy(git = it.git.copy(commitMessage = message)) }
+
+    override fun gitCommit() {
+        val svc = gitService() ?: return
+        val host = hostPath() ?: return
+        val msg = _state.value.git.commitMessage.trim()
+        if (msg.isEmpty()) {
+            _state.update { it.copy(git = it.git.copy(message = "Enter a commit message")) }
+            return
+        }
+        _state.update { it.copy(git = it.git.copy(loading = true)) }
+        viewModelScope.launch {
+            val r = svc.commit(host, msg)
+            if (!r.ok) {
+                _state.update { it.copy(git = it.git.copy(message = r.message(), loading = false), statusText = "git commit: ${r.message()}") }
+                return@launch
+            }
+            _state.update {
+                it.copy(
+                    git = it.git.copy(commitMessage = "").applyRepoState(svc.refresh(host)),
+                    statusText = "Committed",
+                )
+            }
+        }
+    }
+
+    override fun openGitDiff(file: GitFileStatus, staged: Boolean) {
+        val svc = gitService() ?: return
+        val host = hostPath() ?: return
+        viewModelScope.launch {
+            val r = svc.diff(host, file.path, staged)
+            val text = when {
+                r.stdout.isNotBlank() -> r.stdout
+                !r.ok -> r.message()
+                else -> "No changes to show for ${file.path}."
+            }
+            val title = (if (staged) "Δ staged " else "Δ ") + file.path.substringAfterLast('/')
+            openVirtualBuffer("diff:${file.path}:$staged", title, text, "diff")
+        }
+    }
+
+    /** Open (or replace) a read-only virtual buffer, e.g. a diff, in a tab. */
+    private fun openVirtualBuffer(key: String, title: String, text: String, lang: String) {
+        val existing = _state.value.tabs.firstOrNull { it.id == key }
+        val tab = existing ?: EditorTab(key, title, uri = null, languageId = lang)
+        _state.update { s ->
+            val tabs = if (existing != null) s.tabs else s.tabs.filterNot { it.preview && !it.dirty } + tab
+            s.copy(tabs = tabs, activeTabId = tab.id, statusText = title)
+        }
+        editor.openBuffer(tab.id, text, lang)
+        editor.showBuffer(tab.id)
+    }
 
     // ---------- theme & presets (REQ 2 / REQ 8) ----------
 

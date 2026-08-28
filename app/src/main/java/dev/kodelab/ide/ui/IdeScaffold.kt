@@ -34,8 +34,11 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Folder
@@ -80,6 +83,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import dev.kodelab.ide.editor.EditorWebView
+import dev.kodelab.ide.git.GitFileStatus
 import dev.kodelab.ide.terminal.SandboxInstaller
 import dev.kodelab.ide.terminal.TerminalEmulator
 import dev.kodelab.ide.terminal.TerminalHost
@@ -255,7 +259,7 @@ private fun SidePanel(
         when (state.sidebarView) {
             SidebarView.EXPLORER -> ExplorerTree(state, actions)
             SidebarView.SEARCH -> SearchPanel(state, actions)
-            SidebarView.GIT -> PanelPlaceholder("Git panel arrives in v1.x — use git in the terminal meanwhile.")
+            SidebarView.GIT -> GitPanel(state, actions)
             SidebarView.EXTENSIONS -> PanelPlaceholder(
                 "Declarative add-ons (grammars, themes, snippets) arrive in v1.x.\n\n" +
                     "Kodelab never uses the Microsoft Marketplace; the catalogue will be " +
@@ -388,6 +392,190 @@ private fun searchHitLine(
 private fun PanelPlaceholder(text: String) {
     val palette = LocalEditorPalette.current
     Text(text, color = palette.textMuted, fontSize = 12.sp, lineHeight = 17.sp)
+}
+
+@Composable
+private fun GitPanel(state: IdeUiState, actions: IdeActions) {
+    val palette = LocalEditorPalette.current
+    val git = state.git
+    // Non-ready states get a short explanation and, where useful, an action.
+    if (git.availability != GitAvailability.READY || git.status == null) {
+        val msg = when (git.availability) {
+            GitAvailability.UNKNOWN -> if (git.loading) "Checking repository…" else "Open the Git panel to check the repository."
+            GitAvailability.SANDBOX_MISSING ->
+                "Git runs in the Linux sandbox. Open the terminal and tap “Install Linux”, then “apk add git”."
+            GitAvailability.GIT_MISSING ->
+                "Git isn't installed in the sandbox yet. In the terminal run:\n\n    apk add git"
+            GitAvailability.NO_PATH ->
+                "This folder isn't on a path the sandbox can reach, so git can't run against it."
+            GitAvailability.NOT_A_REPO ->
+                "No git repository here.\n\nIn the terminal you can run:\n\n    git init"
+            GitAvailability.ERROR -> "git error:\n\n${git.message ?: "unknown"}"
+            GitAvailability.READY -> ""
+        }
+        Column {
+            GitPanelHeader(branchText = null, loading = git.loading, actions = actions)
+            Spacer(Modifier.height(8.dp))
+            PanelPlaceholder(msg)
+        }
+        return
+    }
+
+    val status = git.status
+    val branchText = buildString {
+        append(status.branch ?: if (status.detached) "detached" else "—")
+        if (status.ahead > 0) append("  ↑${status.ahead}")
+        if (status.behind > 0) append("  ↓${status.behind}")
+    }
+    Column(Modifier.fillMaxWidth()) {
+        GitPanelHeader(branchText = branchText, loading = git.loading, actions = actions)
+        Spacer(Modifier.height(6.dp))
+
+        // Commit box
+        BasicTextField(
+            value = git.commitMessage,
+            onValueChange = actions::gitCommitMessageChanged,
+            textStyle = TextStyle(color = palette.textPrimary, fontSize = 13.sp),
+            cursorBrush = SolidColor(palette.accent),
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { actions.gitCommit() }),
+            decorationBox = { inner ->
+                Box(
+                    Modifier.fillMaxWidth().background(palette.surface, RoundedCornerShape(6.dp))
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                ) {
+                    if (git.commitMessage.isEmpty()) {
+                        Text("Message (⏎ to commit)", color = palette.textMuted, fontSize = 13.sp)
+                    }
+                    inner()
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        git.message?.let {
+            Spacer(Modifier.height(4.dp))
+            Text(it, color = palette.textMuted, fontSize = 11.sp)
+        }
+        Spacer(Modifier.height(6.dp))
+
+        val staged = status.staged
+        val unstaged = status.unstaged
+        LazyColumn(Modifier.fillMaxWidth()) {
+            if (status.clean) {
+                item { PanelPlaceholder("Nothing to commit — working tree clean.") }
+            }
+            if (staged.isNotEmpty()) {
+                item(key = "hdr-staged") { GitSectionHeader("Staged Changes", staged.size) }
+                items(staged, key = { "s:" + it.path }) { f ->
+                    GitFileRow(f, staged = true, busy = git.busyPath == f.path,
+                        onOpen = { actions.openGitDiff(f, staged = true) },
+                        onAction = { actions.gitUnstage(f) })
+                }
+            }
+            if (unstaged.isNotEmpty()) {
+                item(key = "hdr-changes") {
+                    GitSectionHeader("Changes", unstaged.size, onStageAll = actions::gitStageAll)
+                }
+                items(unstaged, key = { "u:" + it.path }) { f ->
+                    GitFileRow(f, staged = false, busy = git.busyPath == f.path,
+                        onOpen = { actions.openGitDiff(f, staged = false) },
+                        onAction = { actions.gitStage(f) })
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GitPanelHeader(branchText: String?, loading: Boolean, actions: IdeActions) {
+    val palette = LocalEditorPalette.current
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Filled.Source, contentDescription = null, tint = palette.accentMuted, modifier = Modifier.size(14.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(
+            branchText ?: "Git",
+            color = palette.textPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+            maxLines = 1, modifier = Modifier.weight(1f),
+        )
+        IconButton(onClick = actions::gitRefresh, modifier = Modifier.size(26.dp)) {
+            Icon(
+                Icons.Filled.Refresh, contentDescription = "Refresh",
+                tint = if (loading) palette.accent else palette.textMuted, modifier = Modifier.size(15.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun GitSectionHeader(title: String, count: Int, onStageAll: (() -> Unit)? = null) {
+    val palette = LocalEditorPalette.current
+    Row(
+        Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            title.uppercase(), color = palette.textMuted, fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold, letterSpacing = 0.8.sp, modifier = Modifier.weight(1f),
+        )
+        Text("$count", color = palette.textMuted, fontSize = 10.sp)
+        if (onStageAll != null && count > 0) {
+            Spacer(Modifier.width(4.dp))
+            IconButton(onClick = onStageAll, modifier = Modifier.size(20.dp)) {
+                Icon(Icons.Filled.Add, contentDescription = "Stage all", tint = palette.textMuted, modifier = Modifier.size(14.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun GitFileRow(
+    file: GitFileStatus,
+    staged: Boolean,
+    busy: Boolean,
+    onOpen: () -> Unit,
+    onAction: () -> Unit,
+) {
+    val palette = LocalEditorPalette.current
+    val badgeColor = when (file.badge()) {
+        'M' -> palette.accent
+        'A' -> palette.accentMuted
+        'D' -> palette.textMuted
+        'U' -> palette.accent
+        '!' -> palette.textPrimary
+        else -> palette.textMuted
+    }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(4.dp))
+            .clickable(enabled = !busy, onClick = onOpen)
+            .padding(start = 4.dp, top = 3.dp, bottom = 3.dp, end = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            file.badge().toString(), color = badgeColor, fontSize = 12.sp,
+            fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, modifier = Modifier.width(12.dp),
+        )
+        Column(Modifier.weight(1f)) {
+            Text(
+                file.path.substringAfterLast('/'), color = palette.textPrimary, fontSize = 12.sp, maxLines = 1,
+            )
+            if (file.path.contains('/')) {
+                Text(
+                    file.path.substringBeforeLast('/'), color = palette.textMuted, fontSize = 10.sp, maxLines = 1,
+                )
+            }
+        }
+        IconButton(onClick = onAction, enabled = !busy, modifier = Modifier.size(24.dp)) {
+            Icon(
+                if (staged) Icons.Filled.Remove else Icons.Filled.Add,
+                contentDescription = if (staged) "Unstage" else "Stage",
+                tint = palette.textMuted, modifier = Modifier.size(15.dp),
+            )
+        }
+    }
 }
 
 @Composable
