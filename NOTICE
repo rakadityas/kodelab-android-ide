@@ -1,0 +1,53 @@
+Kodelab
+Copyright 2026 The Kodelab Authors
+
+This product includes software developed by third parties, used under their
+respective licenses. None of the components below are copied into Kodelab's own
+source; they are consumed as published packages or executed as separate processes.
+
+--------------------------------------------------------------------------------
+Bundled in the APK (permissive licenses — safe to redistribute):
+
+  Monaco Editor              MIT        https://github.com/microsoft/monaco-editor
+    - the editor component only; NOT Visual Studio Code, no VS Code branding,
+      product.json, telemetry, or bundled extensions.
+  xterm.js / @xterm/xterm    MIT        https://github.com/xtermjs/xterm.js
+  @xterm/addon-fit           MIT
+  AndroidX / Jetpack Compose Apache-2.0 https://developer.android.com
+  kotlinx.serialization      Apache-2.0
+  kotlinx.coroutines         Apache-2.0
+  Apache Commons Compress    Apache-2.0 https://commons.apache.org/proper/commons-compress
+    - unpacks the runtime-downloaded sandbox artifacts (.deb ar archives,
+      tar.xz data members, tar.gz rootfs). No sandbox content is bundled.
+  XZ for Java                Public Domain https://tukaani.org/xz/java.html
+  JetBrains Mono (font)      SIL OFL 1.1 https://github.com/JetBrains/JetBrainsMono
+
+TextMate / Tree-sitter grammars bundled for syntax highlighting are listed
+individually in docs/GRAMMARS.md with their SPDX license; only MIT / BSD /
+Apache-2.0 / Unlicense / CC0 grammars are shipped in the app.
+
+--------------------------------------------------------------------------------
+Downloaded at runtime from the projects' own servers, NOT redistributed here:
+
+  proot                      GPL-2.0    https://github.com/proot-me/proot
+    - fetched at runtime as an unmodified prebuilt Android binary from the
+      Termux package mirror (packages.termux.dev), together with its libtalloc
+      and libandroid-shmem dependencies. Invoked as a separate process (mere
+      aggregation); every download is SHA-256 verified against the mirror index.
+      Corresponding source and build scripts are published by their projects; a
+      written offer appears in the app's "Open source notices" screen.
+  libtalloc                  LGPL-3.0   (Termux build) — proot dependency
+  libandroid-shmem           MIT        (Termux build) — proot dependency
+  Alpine Linux minirootfs    (mixed, per distribution) https://alpinelinux.org
+    - ~4 MB, fetched at runtime from dl-cdn.alpinelinux.org and SHA-256 checked
+      against the mirror's latest-releases.yaml.
+  Language servers (gopls, pyright, rust-analyzer, ...) — user-installed into the
+      Linux sandbox; Kodelab only speaks the Language Server Protocol.
+
+--------------------------------------------------------------------------------
+NOT used, by design:
+
+  Microsoft Visual Studio Marketplace and its APIs — its terms restrict use to
+      Microsoft products. Kodelab never queries, proxies, or links it.
+  Termux source code (GPL-3.0) — no code reused; terminal/PTY/proot glue is
+      written from POSIX, Android and VT specifications.

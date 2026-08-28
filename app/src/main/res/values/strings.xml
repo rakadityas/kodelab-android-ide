@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Kodelab</string>
+    <string name="terminal_channel_name">Terminal sessions</string>
+    <string name="terminal_notification_title">Kodelab shell running</string>
+    <string name="terminal_notification_text">Keeping your terminal sessions alive.</string>
+</resources>

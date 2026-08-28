@@ -1,0 +1,463 @@
+package dev.kodelab.ide.ui
+
+import android.net.Uri
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import dev.kodelab.ide.editor.EditorController
+import dev.kodelab.ide.editor.Languages
+import dev.kodelab.ide.theme.KodelabThemes
+import dev.kodelab.ide.workspace.SettingsStore
+import dev.kodelab.ide.workspace.WorkspacePresets
+import dev.kodelab.ide.workspace.WorkspaceRepository
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import org.json.JSONObject
+import java.util.UUID
+
+/** One-shot requests the Activity has to fulfil (system pickers, new windows). */
+sealed interface IdeEvent {
+    data object OpenFolderPicker : IdeEvent
+    data object NewWindow : IdeEvent
+}
+
+class IdeViewModel(
+    private val settings: SettingsStore,
+    private val repo: WorkspaceRepository,
+) : ViewModel(), IdeActions {
+
+    private val _state = MutableStateFlow(seedState())
+    val state: StateFlow<IdeUiState> = _state.asStateFlow()
+
+    private val _events = MutableSharedFlow<IdeEvent>(extraBufferCapacity = 4)
+    val events: SharedFlow<IdeEvent> = _events.asSharedFlow()
+
+    /** Owned here so buffer pushes survive recomposition; the WebView reference
+     *  inside is attached/detached by the composable. */
+    val editor = EditorController()
+
+    private var untitledCounter = 1
+    /** Last text received from the web layer per tab — what "save" writes. */
+    private val pendingSaves = mutableMapOf<String, (String) -> Unit>()
+
+    init {
+        viewModelScope.launch {
+            val user = settings.settings.first()
+            _state.update { s -> s.copy(presets = s.presets.withUserDefaults(user)) }
+        }
+    }
+
+    private fun seedState(): IdeUiState {
+        val welcome = EditorTab(
+            id = UUID.randomUUID().toString(),
+            title = "Welcome",
+            uri = null,
+            languageId = "markdown",
+        )
+        return IdeUiState(
+            tabs = listOf(welcome),
+            activeTabId = welcome.id,
+            statusText = "Open a folder to begin",
+        )
+    }
+
+    // ---------- workspace ----------
+
+    override fun openFolder(treeUri: Uri) {
+        viewModelScope.launch {
+            runCatching { repo.persistPermission(treeUri) }
+            val name = repo.workspaceName(treeUri)
+            val presets = repo.loadPresets(treeUri).withUserDefaults(settings.settings.first())
+            val roots = repo.listChildren(treeUri, null).map { e ->
+                FileNode(e.name, e.uri, e.docId, e.isDir, depth = 0)
+            }
+            _state.update {
+                it.copy(
+                    workspaceUri = treeUri,
+                    workspaceName = name,
+                    presets = presets,
+                    fileTree = roots,
+                    sidebarVisible = true,
+                    sidebarView = SidebarView.EXPLORER,
+                    statusText = "Opened $name",
+                )
+            }
+            editor.applySettings(presets)
+        }
+    }
+
+    override fun toggleDir(node: FileNode) {
+        val tree = _state.value.workspaceUri ?: return
+        if (node.expanded) {
+            _state.update { it.copy(fileTree = updateNode(it.fileTree, node.docId) { n -> n.copy(expanded = false) }) }
+            return
+        }
+        viewModelScope.launch {
+            val children = node.children ?: repo.listChildren(tree, node.docId).map { e ->
+                FileNode(e.name, e.uri, e.docId, e.isDir, depth = node.depth + 1)
+            }
+            _state.update {
+                it.copy(fileTree = updateNode(it.fileTree, node.docId) { n ->
+                    n.copy(expanded = true, children = children)
+                })
+            }
+        }
+    }
+
+    private fun updateNode(
+        nodes: List<FileNode>,
+        docId: String,
+        transform: (FileNode) -> FileNode,
+    ): List<FileNode> = nodes.map { n ->
+        when {
+            n.docId == docId -> transform(n)
+            n.children != null -> n.copy(children = updateNode(n.children, docId, transform))
+            else -> n
+        }
+    }
+
+    // ---------- files & tabs ----------
+
+    override fun openFile(node: FileNode) {
+        if (node.isDir) { toggleDir(node); return }
+        val existing = _state.value.tabs.firstOrNull { it.uri == node.uri }
+        if (existing != null) { selectTab(existing.id); return }
+
+        viewModelScope.launch {
+            val text = repo.readText(node.uri)
+            if (text == null) {
+                _state.update { it.copy(statusText = "Can't read ${node.name}") }
+                return@launch
+            }
+            val lang = Languages.forFileName(node.name)
+            val tab = EditorTab(UUID.randomUUID().toString(), node.name, node.uri, lang)
+            _state.update { s ->
+                // a new open replaces the current preview tab, VS-style
+                val tabs = s.tabs.filterNot { it.preview && !it.dirty } + tab.copy(preview = false)
+                s.copy(tabs = tabs, activeTabId = tab.id, statusText = node.name)
+            }
+            editor.openBuffer(tab.id, text, lang)
+            editor.showBuffer(tab.id)
+        }
+    }
+
+    override fun selectTab(id: String) {
+        _state.update { it.copy(activeTabId = id) }
+        editor.showBuffer(id)
+    }
+
+    override fun closeTab(id: String) {
+        val tab = _state.value.tabs.firstOrNull { it.id == id } ?: return
+        if (tab.dirty) {
+            _state.update { it.copy(pendingCloseTabId = id) }
+            return
+        }
+        reallyClose(id)
+    }
+
+    override fun confirmCloseDiscard() {
+        _state.value.pendingCloseTabId?.let { reallyClose(it) }
+    }
+
+    override fun cancelClose() = _state.update { it.copy(pendingCloseTabId = null) }
+
+    private fun reallyClose(id: String) {
+        editor.closeBuffer(id)
+        _state.update { s ->
+            val remaining = s.tabs.filterNot { it.id == id }
+            s.copy(
+                tabs = remaining,
+                pendingCloseTabId = null,
+                activeTabId = when {
+                    s.activeTabId != id -> s.activeTabId
+                    remaining.isEmpty() -> null
+                    else -> remaining.last().id
+                },
+            )
+        }
+        _state.value.activeTabId?.let { editor.showBuffer(it) }
+    }
+
+    override fun newUntitled() {
+        val tab = EditorTab(
+            UUID.randomUUID().toString(), "Untitled-${untitledCounter++}", null, "plaintext",
+        )
+        _state.update { s -> s.copy(tabs = s.tabs + tab, activeTabId = tab.id) }
+        editor.openBuffer(tab.id, "", "plaintext")
+    }
+
+    override fun saveActiveTab() {
+        val tab = _state.value.tabs.firstOrNull { it.id == _state.value.activeTabId } ?: return
+        pendingSaves[tab.id] = { text -> persistTab(tab, text) }
+        editor.requestSave(tab.id)
+    }
+
+    private fun persistTab(tab: EditorTab, text: String) {
+        viewModelScope.launch {
+            val uri = tab.uri
+            if (uri == null) {
+                _state.update { it.copy(statusText = "Untitled buffers can't be saved yet — open a file from a folder") }
+                return@launch
+            }
+            val ok = repo.writeText(uri, text)
+            _state.update { s ->
+                s.copy(
+                    statusText = if (ok) "Saved ${tab.title}" else "Save failed: ${tab.title}",
+                    tabs = if (ok) s.tabs.map { if (it.id == tab.id) it.copy(dirty = false) else it } else s.tabs,
+                )
+            }
+            if (ok) editor.markSaved(tab.id)
+        }
+    }
+
+    // ---------- Explorer file operations ----------
+
+    override fun requestFileOp(kind: FileOpKind, target: FileNode?) {
+        val initial = if (kind == FileOpKind.RENAME) target?.name.orEmpty() else ""
+        _state.update { it.copy(pendingFileOp = FileOpRequest(kind, target, initial)) }
+    }
+
+    override fun cancelFileOp() = _state.update { it.copy(pendingFileOp = null) }
+
+    override fun confirmFileOp(name: String) {
+        val op = _state.value.pendingFileOp ?: return
+        val tree = _state.value.workspaceUri ?: return
+        _state.update { it.copy(pendingFileOp = null) }
+        viewModelScope.launch {
+            val parentUri = when {
+                op.kind == FileOpKind.RENAME || op.kind == FileOpKind.DELETE -> null
+                op.target == null -> android.provider.DocumentsContract.buildDocumentUriUsingTree(
+                    tree, android.provider.DocumentsContract.getTreeDocumentId(tree),
+                )
+                else -> op.target.uri
+            }
+            val ok = when (op.kind) {
+                FileOpKind.NEW_FILE -> repo.createFile(parentUri!!, name) != null
+                FileOpKind.NEW_FOLDER -> repo.createDirectory(parentUri!!, name) != null
+                FileOpKind.RENAME -> {
+                    val newUri = repo.rename(op.target!!.uri, name)
+                    if (newUri != null) {
+                        _state.update { s ->
+                            s.copy(tabs = s.tabs.map { t ->
+                                if (t.uri == op.target.uri) t.copy(title = name, uri = newUri) else t
+                            })
+                        }
+                    }
+                    newUri != null
+                }
+                FileOpKind.DELETE -> {
+                    val ok = repo.delete(op.target!!.uri)
+                    if (ok) {
+                        _state.value.tabs.firstOrNull { it.uri == op.target.uri }
+                            ?.let { reallyClose(it.id) }
+                    }
+                    ok
+                }
+            }
+            val dirToRefresh = when (op.kind) {
+                FileOpKind.NEW_FILE, FileOpKind.NEW_FOLDER -> op.target // null == root
+                FileOpKind.RENAME, FileOpKind.DELETE ->
+                    op.target?.let { findParentDir(_state.value.fileTree, it.docId) }
+            }
+            refreshDir(dirToRefresh)
+            _state.update {
+                it.copy(statusText = if (ok) "${op.kind.name.lowercase().replace('_', ' ')}: $name" else "Operation failed")
+            }
+        }
+    }
+
+    /** The directory node whose loaded children contain [docId], or null (root). */
+    private fun findParentDir(nodes: List<FileNode>, docId: String): FileNode? {
+        for (n in nodes) {
+            val children = n.children ?: continue
+            if (children.any { it.docId == docId }) return n
+            findParentDir(children, docId)?.let { return it }
+        }
+        return null
+    }
+
+    /** Re-list the given directory (or the workspace root). */
+    private suspend fun refreshDir(dir: FileNode?) {
+        val tree = _state.value.workspaceUri ?: return
+        if (dir == null) {
+            val roots = repo.listChildren(tree, null).map { e ->
+                FileNode(e.name, e.uri, e.docId, e.isDir, depth = 0)
+            }
+            // keep expanded state for dirs that still exist
+            val old = _state.value.fileTree.associateBy { it.docId }
+            _state.update { s ->
+                s.copy(fileTree = roots.map { n -> old[n.docId]?.let { n.copy(expanded = it.expanded, children = it.children) } ?: n })
+            }
+        } else {
+            val children = repo.listChildren(tree, dir.docId).map { e ->
+                FileNode(e.name, e.uri, e.docId, e.isDir, depth = dir.depth + 1)
+            }
+            _state.update {
+                it.copy(fileTree = updateNode(it.fileTree, dir.docId) { n ->
+                    n.copy(expanded = true, children = children)
+                })
+            }
+        }
+    }
+
+    // ---------- editor accessory keys ----------
+
+    override fun sendEditorCommand(command: String) =
+        editor.send("input.exec", org.json.JSONObject().put("command", command))
+
+    override fun sendEditorText(text: String) =
+        editor.send("input.type", org.json.JSONObject().put("text", text))
+
+    // ---------- chrome ----------
+
+    override fun toggleSidebar() = _state.update { it.copy(sidebarVisible = !it.sidebarVisible) }
+    override fun togglePanel() = _state.update { it.copy(panelVisible = !it.panelVisible) }
+    override fun setSidebarView(view: SidebarView) =
+        _state.update { it.copy(sidebarView = view, sidebarVisible = true) }
+
+    // ---------- theme & presets (REQ 2 / REQ 8) ----------
+
+    override fun setTheme(themeId: String) {
+        val next = _state.value.presets.copy(themeId = themeId)
+        _state.update { it.copy(presets = next) }
+        viewModelScope.launch {
+            settings.setTheme(themeId)
+            // per-folder preset: the theme follows the workspace, not the device
+            _state.value.workspaceUri?.let { repo.savePresets(it, next) }
+        }
+    }
+
+    override fun cycleTheme() {
+        setTheme(
+            when (_state.value.presets.themeId) {
+                KodelabThemes.LIGHT -> KodelabThemes.DARK
+                KodelabThemes.DARK -> KodelabThemes.SYSTEM
+                else -> KodelabThemes.LIGHT
+            },
+        )
+    }
+
+    // ---------- command palette ----------
+
+    override fun openPalette() {
+        _state.update { it.copy(paletteOpen = true, paletteQuery = "", paletteItems = buildPalette("")) }
+    }
+
+    override fun closePalette() = _state.update { it.copy(paletteOpen = false) }
+
+    override fun paletteQueryChanged(query: String) =
+        _state.update { it.copy(paletteQuery = query, paletteItems = buildPalette(query)) }
+
+    private fun buildPalette(query: String): List<PaletteItem> {
+        val commands = listOf(
+            PaletteItem("cmd.save", "Save file", "writes the active tab to disk", PaletteKind.COMMAND),
+            PaletteItem("cmd.newFile", "New untitled file", null, PaletteKind.COMMAND),
+            PaletteItem("cmd.openFolder", "Open folder…", "pick a workspace with the system picker", PaletteKind.COMMAND),
+            PaletteItem("cmd.newWindow", "New window", "another Kodelab window, same terminal", PaletteKind.COMMAND),
+            PaletteItem("cmd.toggleTerminal", "Toggle terminal panel", null, PaletteKind.COMMAND),
+            PaletteItem("cmd.toggleSidebar", "Toggle side panel", null, PaletteKind.COMMAND),
+            PaletteItem("theme.${KodelabThemes.DARK}", "Theme: Kodelab Dark", null, PaletteKind.THEME),
+            PaletteItem("theme.${KodelabThemes.LIGHT}", "Theme: Kodelab Light", null, PaletteKind.THEME),
+            PaletteItem("theme.${KodelabThemes.SYSTEM}", "Theme: follow system", null, PaletteKind.THEME),
+        )
+        val files = flattenFiles(_state.value.fileTree).map { n ->
+            PaletteItem("file.${n.docId}", n.name, "open file", PaletteKind.FILE)
+        }
+        val all = commands + files
+        if (query.isBlank()) return all.take(30)
+        return all.filter { fuzzyMatch(query, it.label) }.take(30)
+    }
+
+    private fun flattenFiles(nodes: List<FileNode>): List<FileNode> =
+        nodes.flatMap { n ->
+            if (n.isDir) n.children?.let { flattenFiles(it) } ?: emptyList() else listOf(n)
+        }
+
+    private fun fuzzyMatch(query: String, target: String): Boolean {
+        var qi = 0
+        val q = query.lowercase(); val t = target.lowercase()
+        for (c in t) { if (qi < q.length && c == q[qi]) qi++ }
+        return qi == q.length
+    }
+
+    override fun paletteItemPicked(item: PaletteItem) {
+        closePalette()
+        when {
+            item.id == "cmd.save" -> saveActiveTab()
+            item.id == "cmd.newFile" -> newUntitled()
+            item.id == "cmd.openFolder" -> _events.tryEmit(IdeEvent.OpenFolderPicker)
+            item.id == "cmd.newWindow" -> _events.tryEmit(IdeEvent.NewWindow)
+            item.id == "cmd.toggleTerminal" -> togglePanel()
+            item.id == "cmd.toggleSidebar" -> toggleSidebar()
+            item.id.startsWith("theme.") -> setTheme(item.id.removePrefix("theme."))
+            item.id.startsWith("file.") -> {
+                val docId = item.id.removePrefix("file.")
+                flattenFiles(_state.value.fileTree).firstOrNull { it.docId == docId }
+                    ?.let { openFile(it) }
+            }
+        }
+    }
+
+    fun requestOpenFolder() { _events.tryEmit(IdeEvent.OpenFolderPicker) }
+    fun requestNewWindow() { _events.tryEmit(IdeEvent.NewWindow) }
+
+    // ---------- events from the web editor ----------
+
+    override fun onWebEvent(method: String, params: String) {
+        val p = runCatching { JSONObject(params) }.getOrDefault(JSONObject())
+        when (method) {
+            "editor.ready" -> onEditorReady()
+            "editor.dirtyChanged" -> {
+                val tabId = p.optString("tabId")
+                val dirty = p.optBoolean("dirty")
+                _state.update { s ->
+                    s.copy(tabs = s.tabs.map { if (it.id == tabId) it.copy(dirty = dirty) else it })
+                }
+            }
+            "buffer.save" -> {
+                val tabId = p.optString("tabId")
+                val text = p.optString("text")
+                pendingSaves.remove(tabId)?.invoke(text)
+            }
+        }
+    }
+
+    /** The WebView (re)loaded: push theme-independent settings and replay open
+     *  buffers from disk. Unsaved edits don't survive a WebView recreation yet. */
+    private fun onEditorReady() {
+        val s = _state.value
+        editor.applySettings(s.presets)
+        viewModelScope.launch {
+            s.tabs.forEach { tab ->
+                val text = tab.uri?.let { repo.readText(it) }
+                    ?: if (tab.title == "Welcome") WELCOME_TEXT else ""
+                editor.openBuffer(tab.id, text, tab.languageId)
+            }
+            s.activeTabId?.let { editor.showBuffer(it) }
+            _state.update { it.copy(statusText = "Editor ready") }
+        }
+    }
+
+    companion object {
+        private val WELCOME_TEXT = """
+            # Welcome to Kodelab
+
+            A code IDE that runs on this Android device.
+
+            - Open a folder: tap the folder icon, or run "Open folder…" from the
+              command palette (the search icon in the status bar).
+            - Tabs, themes, and editor settings follow the folder you open —
+              they live in `.kodelab/workspace.json` inside it.
+            - The terminal (rail icon) is shared across every folder and window.
+
+            This build is an early milestone; the Linux sandbox (`apk add git`,
+            Claude Code) and language servers arrive next.
+        """.trimIndent()
+    }
+}

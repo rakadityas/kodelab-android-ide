@@ -1,0 +1,13 @@
+.gradle/
+build/
+app/build/
+local.properties
+*.iml
+.idea/
+.DS_Store
+.kotlin/
+
+# vendored editor bundle — produced by scripts/build-web.sh
+web/node_modules/
+web/dist/
+app/src/main/assets/webapp/vendor/
