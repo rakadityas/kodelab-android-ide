@@ -3,6 +3,7 @@ package dev.kodelab.ide.ui
 import android.net.Uri
 import dev.kodelab.ide.git.GitFileStatus
 import dev.kodelab.ide.git.GitStatus
+import dev.kodelab.ide.theme.EditorPalette
 import dev.kodelab.ide.workspace.FileMatches
 import dev.kodelab.ide.workspace.SearchMatch
 import dev.kodelab.ide.workspace.WorkspacePresets
@@ -18,6 +19,9 @@ data class EditorTab(
 )
 
 enum class SidebarView { EXPLORER, SEARCH, GIT, EXTENSIONS }
+
+/** A user-imported theme (from a JSON file under `.kodelab/themes`), resolved to a palette. */
+data class CustomTheme(val id: String, val name: String, val palette: EditorPalette)
 
 /** Why the Git panel can or can't show a status, mapped from GitService.RepoState. */
 enum class GitAvailability { UNKNOWN, SANDBOX_MISSING, GIT_MISSING, NOT_A_REPO, NO_PATH, READY, ERROR }
@@ -87,6 +91,8 @@ data class IdeUiState(
     val searchSummary: String? = null,
     // --- git panel ---
     val git: GitUiState = GitUiState(),
+    /** Imported themes available in this workspace, keyed for selection. */
+    val customThemes: List<CustomTheme> = emptyList(),
 )
 
 /** Everything the UI can ask the ViewModel to do. */
@@ -113,6 +119,10 @@ interface IdeActions {
     fun openGitDiff(file: GitFileStatus, staged: Boolean)
     fun setTheme(themeId: String)
     fun cycleTheme()
+    /** Ask the host to pick a theme JSON file to import. */
+    fun requestImportTheme()
+    /** Parse + persist a picked theme JSON and switch to it. */
+    fun importThemeFrom(uri: Uri)
     fun openPalette()
     fun closePalette()
     fun paletteQueryChanged(query: String)

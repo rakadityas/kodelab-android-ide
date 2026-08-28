@@ -74,18 +74,34 @@ object KodelabThemes {
         good = Color(0xFF5CC088), warn = Color(0xFFE0A24E), crit = Color(0xFFE07A7A),
         isDark = true,
     )
+
+    /**
+     * Resolve a theme id to a palette. Imported themes (from [custom], keyed by
+     * their `import-…` id) win over the built-ins; unknown ids fall back to the
+     * system-appropriate built-in so a deleted custom theme can't break the UI.
+     */
+    fun paletteFor(
+        themeId: String,
+        systemDark: Boolean,
+        custom: Map<String, EditorPalette> = emptyMap(),
+    ): EditorPalette = when (themeId) {
+        LIGHT -> light
+        DARK -> dark
+        SYSTEM -> if (systemDark) dark else light
+        else -> custom[themeId] ?: if (systemDark) dark else light
+    }
 }
 
 val LocalEditorPalette = staticCompositionLocalOf { KodelabThemes.dark }
 
 @Composable
-fun KodelabTheme(themeId: String, content: @Composable () -> Unit) {
+fun KodelabTheme(
+    themeId: String,
+    custom: Map<String, EditorPalette> = emptyMap(),
+    content: @Composable () -> Unit,
+) {
     val systemDark = isSystemInDarkTheme()
-    val palette = when (themeId) {
-        KodelabThemes.LIGHT -> KodelabThemes.light
-        KodelabThemes.DARK -> KodelabThemes.dark
-        else -> if (systemDark) KodelabThemes.dark else KodelabThemes.light
-    }
+    val palette = KodelabThemes.paletteFor(themeId, systemDark, custom)
     val scheme = if (palette.isDark) {
         darkColorScheme(
             primary = palette.accent, background = palette.surface, surface = palette.panel,

@@ -28,6 +28,7 @@ See [`docs/architecture.md`](docs/architecture.md) and [`docs/IP-SAFETY.md`](doc
 | ANSI colour terminal (SGR/256-colour, `\r` in-place progress bars) via a small VT emulator | ✅ working |
 | Search across files: recursive SAF walk, results grouped by file, tap a hit to jump to the line | ✅ working |
 | Git panel over the sandbox CLI: branch/ahead-behind, stage/unstage, commit, open a file's diff | ✅ working (needs `apk add git`) |
+| Theme import: load a standard color-theme JSON → Kodelab palette (native + Monaco + terminal) | ✅ working |
 | LSP (language servers), declarative + Open VSX extensions | ⛔ next — see `requirement.txt` action items |
 
 ## Build
@@ -122,8 +123,11 @@ follows the active workspace.
   languages. The bar above the keyboard adds Tab, arrows, undo/redo and common
   code symbols. Save with the 💾 rail icon or *Save file* in the palette.
 - **Files** — long-press a tree row for New file / New folder / Rename / Delete.
-- **Themes** — the palette rail icon cycles Kodelab Dark → Light → follow-system;
-  the choice is saved per-folder in `.kodelab/workspace.json`.
+- **Themes** — the palette rail icon cycles Kodelab Dark → Light → follow-system
+  (and any imported themes); the choice is saved per-folder in
+  `.kodelab/workspace.json`. Run *Import theme…* from the command palette to load
+  a standard color-theme `.json`; it's saved under `.kodelab/themes/` and applies
+  to the native chrome, Monaco and the terminal.
 - **Windows** — the "new window" rail icon opens a second Kodelab window (great
   on tablets, DeX and ChromeOS) sharing the same terminal.
 

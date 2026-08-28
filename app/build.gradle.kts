@@ -76,6 +76,9 @@ dependencies {
 
     debugImplementation(libs.androidx.ui.tooling)
     testImplementation(libs.junit)
+    // Real org.json on the JVM test classpath (android.jar only stubs it), so
+    // the theme-import parser can be unit-tested off-device.
+    testImplementation("org.json:json:20240303")
     androidTestImplementation(libs.androidx.junit)
 }
 

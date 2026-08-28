@@ -10,6 +10,7 @@ import dev.kodelab.ide.git.GitService
 import dev.kodelab.ide.terminal.SandboxShell
 import dev.kodelab.ide.terminal.TerminalHost
 import dev.kodelab.ide.theme.KodelabThemes
+import dev.kodelab.ide.theme.VsThemeImport
 import dev.kodelab.ide.workspace.FileMatches
 import dev.kodelab.ide.workspace.SearchMatch
 import dev.kodelab.ide.workspace.SettingsStore
@@ -33,6 +34,7 @@ import java.util.UUID
 sealed interface IdeEvent {
     data object OpenFolderPicker : IdeEvent
     data object NewWindow : IdeEvent
+    data object ImportThemeFile : IdeEvent
 }
 
 class IdeViewModel(
@@ -85,12 +87,14 @@ class IdeViewModel(
             val roots = repo.listChildren(treeUri, null).map { e ->
                 FileNode(e.name, e.uri, e.docId, e.isDir, depth = 0)
             }
+            val themes = loadCustomThemes(treeUri)
             _state.update {
                 it.copy(
                     workspaceUri = treeUri,
                     workspaceName = name,
                     presets = presets,
                     fileTree = roots,
+                    customThemes = themes,
                     sidebarVisible = true,
                     sidebarView = SidebarView.EXPLORER,
                     statusText = "Opened $name",
@@ -521,13 +525,48 @@ class IdeViewModel(
     }
 
     override fun cycleTheme() {
-        setTheme(
-            when (_state.value.presets.themeId) {
-                KodelabThemes.LIGHT -> KodelabThemes.DARK
-                KodelabThemes.DARK -> KodelabThemes.SYSTEM
-                else -> KodelabThemes.LIGHT
-            },
-        )
+        // Cycle built-ins then any imported themes, in a stable order.
+        val order = listOf(KodelabThemes.DARK, KodelabThemes.LIGHT, KodelabThemes.SYSTEM) +
+            _state.value.customThemes.map { it.id }
+        val idx = order.indexOf(_state.value.presets.themeId)
+        setTheme(order[(idx + 1) % order.size])
+    }
+
+    /** Palettes for the composable layer, keyed by imported-theme id. */
+    fun customPalettes(): Map<String, dev.kodelab.ide.theme.EditorPalette> =
+        _state.value.customThemes.associate { it.id to it.palette }
+
+    private suspend fun loadCustomThemes(treeUri: android.net.Uri): List<CustomTheme> =
+        repo.listThemeFiles(treeUri).mapNotNull { (_, json) ->
+            runCatching { VsThemeImport.parse(json) }.getOrNull()?.let {
+                CustomTheme(it.id, it.name, it.palette)
+            }
+        }.distinctBy { it.id }
+
+    override fun requestImportTheme() { _events.tryEmit(IdeEvent.ImportThemeFile) }
+
+    override fun importThemeFrom(uri: Uri) {
+        viewModelScope.launch {
+            val json = repo.readText(uri)
+            if (json == null) {
+                _state.update { it.copy(statusText = "Couldn't read that theme file") }
+                return@launch
+            }
+            val parsed = runCatching { VsThemeImport.parse(json) }.getOrElse { err ->
+                val reason = err.message ?: "invalid"
+                _state.update { it.copy(statusText = "Not a theme JSON: $reason") }
+                return@launch
+            }
+            val theme = CustomTheme(parsed.id, parsed.name, parsed.palette)
+            // Persist into the workspace so it reappears next time (REQ 8).
+            _state.value.workspaceUri?.let { repo.saveThemeFile(it, "${parsed.id}.json", json) }
+            _state.update { s ->
+                val merged = (s.customThemes.filterNot { it.id == theme.id } + theme)
+                    .sortedBy { it.name.lowercase() }
+                s.copy(customThemes = merged, statusText = "Imported theme “${parsed.name}”")
+            }
+            setTheme(parsed.id)
+        }
     }
 
     // ---------- command palette ----------
@@ -552,11 +591,15 @@ class IdeViewModel(
             PaletteItem("theme.${KodelabThemes.DARK}", "Theme: Kodelab Dark", null, PaletteKind.THEME),
             PaletteItem("theme.${KodelabThemes.LIGHT}", "Theme: Kodelab Light", null, PaletteKind.THEME),
             PaletteItem("theme.${KodelabThemes.SYSTEM}", "Theme: follow system", null, PaletteKind.THEME),
+            PaletteItem("cmd.importTheme", "Import theme…", "load a standard color-theme JSON", PaletteKind.COMMAND),
         )
+        val customThemes = _state.value.customThemes.map { t ->
+            PaletteItem("theme.${t.id}", "Theme: ${t.name}", "imported", PaletteKind.THEME)
+        }
         val files = flattenFiles(_state.value.fileTree).map { n ->
             PaletteItem("file.${n.docId}", n.name, "open file", PaletteKind.FILE)
         }
-        val all = commands + files
+        val all = commands + customThemes + files
         if (query.isBlank()) return all.take(30)
         return all.filter { fuzzyMatch(query, it.label) }.take(30)
     }
@@ -582,6 +625,7 @@ class IdeViewModel(
             item.id == "cmd.newWindow" -> _events.tryEmit(IdeEvent.NewWindow)
             item.id == "cmd.toggleTerminal" -> togglePanel()
             item.id == "cmd.toggleSidebar" -> toggleSidebar()
+            item.id == "cmd.importTheme" -> requestImportTheme()
             item.id.startsWith("theme.") -> setTheme(item.id.removePrefix("theme."))
             item.id.startsWith("file.") -> {
                 val docId = item.id.removePrefix("file.")

@@ -39,6 +39,11 @@ class MainActivity : ComponentActivity() {
             uri?.let(viewModel::openFolder)
         }
 
+    private val themeFilePicker =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            uri?.let(viewModel::importThemeFrom)
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
@@ -48,13 +53,16 @@ class MainActivity : ComponentActivity() {
                 when (event) {
                     IdeEvent.OpenFolderPicker -> folderPicker.launch(null)
                     IdeEvent.NewWindow -> openNewWindow()
+                    IdeEvent.ImportThemeFile ->
+                        themeFilePicker.launch(arrayOf("application/json", "text/plain", "*/*"))
                 }
             }
         }
 
         setContent {
             val uiState by viewModel.state.collectAsState()
-            KodelabTheme(themeId = uiState.presets.themeId) {
+            val customPalettes = uiState.customThemes.associate { it.id to it.palette }
+            KodelabTheme(themeId = uiState.presets.themeId, custom = customPalettes) {
                 IdeScaffold(state = uiState, actions = viewModel, viewModel = viewModel)
             }
         }

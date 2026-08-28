@@ -74,8 +74,14 @@ Priority P0 = product doesn't work without it, P1 = v1 must-have, P2 = v1.x, P3 
         LSP recipes) with per-file SPDX license audit           -> REQ 4
 [ ] P2  LSP client (monaco-languageclient) + server supervisor; servers are
         user-installed in the sandbox, never bundled            -> REQ 3
-[ ] P2  Theme import: read standard theme-JSON *format* (never copy the
-        contents of proprietary bundled themes)                 -> REQ 2/IP
+[x] P2  Theme import — VsThemeImport parses the standard editor color-theme
+        JSON *format* (name/type/colors) into Kodelab's 14-token palette, with
+        luminance-based dark/light inference and sensible derivations for
+        tokens a file omits. Imported via the system file picker (“Import
+        theme…” in the palette), persisted per-workspace under
+        .kodelab/themes/, selectable in the palette + theme cycle; applies to
+        native chrome, Monaco and the terminal. Colour parsing/derivation
+        unit-tested. IP: parses the format only, ships no theme content. -> REQ 2/IP
 
 --- P3 · later ---------------------------------------------------------------
 [ ] P3  Kodelab plugin API (first-party, sandboxed workers, signed)  -> REQ 4
