@@ -26,6 +26,7 @@ See [`docs/architecture.md`](docs/architecture.md) and [`docs/IP-SAFETY.md`](doc
 | Command palette: fuzzy commands + file quick-open | ✅ working |
 | Multi-window: “New window” → separate task, same terminal service | ✅ working |
 | ANSI colour terminal (SGR/256-colour, `\r` in-place progress bars) via a small VT emulator | ✅ working |
+| Search across files: recursive SAF walk, results grouped by file, tap a hit to jump to the line | ✅ working |
 | LSP (language servers), declarative + Open VSX extensions | ⛔ next — see `requirement.txt` action items |
 
 ## Build

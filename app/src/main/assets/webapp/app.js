@@ -123,6 +123,16 @@
     editor.focus();
   }
 
+  function revealLine(tabId, line) {
+    if (!buffers[tabId]) return;
+    if (activeTabId !== tabId) showBuffer(tabId);
+    if (!editor) return;
+    var ln = Math.max(1, line | 0);
+    editor.revealLineInCenter(ln);
+    editor.setPosition({ lineNumber: ln, column: 1 });
+    editor.focus();
+  }
+
   function closeBuffer(tabId) {
     var b = buffers[tabId];
     if (!b) return;
@@ -144,6 +154,7 @@
         case "settings.apply":  applySettings(p); break;
         case "buffer.open":     openBuffer(p.tabId, p.text || "", p.languageId); break;
         case "buffer.show":     showBuffer(p.tabId); break;
+        case "buffer.reveal":   revealLine(p.tabId, p.line || 1); break;
         case "buffer.close":    closeBuffer(p.tabId); break;
         case "buffer.requestSave": {
           var b = buffers[p.tabId];

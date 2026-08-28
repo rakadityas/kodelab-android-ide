@@ -1,6 +1,8 @@
 package dev.kodelab.ide.ui
 
 import android.net.Uri
+import dev.kodelab.ide.workspace.FileMatches
+import dev.kodelab.ide.workspace.SearchMatch
 import dev.kodelab.ide.workspace.WorkspacePresets
 
 data class EditorTab(
@@ -62,6 +64,12 @@ data class IdeUiState(
     /** Tab awaiting a keep/discard decision because it has unsaved changes. */
     val pendingCloseTabId: String? = null,
     val pendingFileOp: FileOpRequest? = null,
+    // --- search across files ---
+    val searchQuery: String = "",
+    val searchResults: List<FileMatches> = emptyList(),
+    val searching: Boolean = false,
+    /** null = no search run yet; otherwise a "12 results in 4 files" style summary. */
+    val searchSummary: String? = null,
 )
 
 /** Everything the UI can ask the ViewModel to do. */
@@ -74,6 +82,10 @@ interface IdeActions {
     fun toggleSidebar()
     fun togglePanel()
     fun setSidebarView(view: SidebarView)
+    fun searchQueryChanged(query: String)
+    /** Run the search now (e.g. keyboard "search" action); no-op if the query is blank. */
+    fun runSearch()
+    fun openSearchHit(file: FileMatches, match: SearchMatch)
     fun setTheme(themeId: String)
     fun cycleTheme()
     fun openPalette()

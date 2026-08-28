@@ -1,0 +1,83 @@
+create an ide for android,  the requirement
+1. use good design, similar to cursor and vscode design
+2. i can read the code comfortably, i can change the theme like what VScode or other ide has
+3. support multiple language
+4. support extension, i want you to be careful here, the extension must be opensource or save to re use without any infringement. not sure which market that can integrate to this extension, if its not possible and require complex integration, skip it for now
+5. has lightweight terminal, you can install anything on it, including git, claude code, etc
+6. has a tab like user interface, like what the vscode offers
+7. if its possible, add support for multi window
+8. each folder opened is configured as presets, so when i open another folder, it should have the presets like theme and so on, even though the terminal is always sharing
+
+be careful to not infringe any intelectual property, be original and be safe
+
+================================================================================
+ACTION ITEMS  (owner: Claude · status legend: [x] done  [~] partial  [ ] todo)
+Priority P0 = product doesn't work without it, P1 = v1 must-have, P2 = v1.x, P3 = later
+================================================================================
+
+--- P0 · make it a working product (this pass) -------------------------------
+[x] P0  Open a folder (Storage Access Framework tree picker), persist permission,
+        show a real file tree in the Explorer side panel        -> REQ 1/6
+[x] P0  Open files from the tree into tabs; per-tab Monaco models in the web
+        layer; tab switch swaps models; close prompts on dirty  -> REQ 6
+[x] P0  Save files back through SAF (save action + palette command),
+        dirty-dot on tabs driven by real model changes          -> REQ 6
+[x] P0  Vendor Monaco + xterm.js locally via scripts/build-web.sh (MIT, no CDN)
+        so syntax highlighting for many languages works         -> REQ 2/3
+[x] P0  Language detection by file extension -> Monaco language id -> REQ 3
+[x] P0  Interactive terminal: bind shared TerminalSessionService, stream shell
+        output into the panel, input row sends commands; session survives
+        folder switches and windows (shared by design)          -> REQ 5/8
+[x] P0  Read/write .kodelab/workspace.json on folder open/change; theme +
+        editor settings re-applied per folder                   -> REQ 8
+[x] P0  Theme picker (Kodelab Dark / Light / follow system) from status bar,
+        native chrome + Monaco + terminal all follow the token set -> REQ 2
+
+--- P1 · v1 must-have --------------------------------------------------------
+[x] P1  Command palette (fuzzy: commands + open files' quick switch)  -> REQ 1
+[x] P1  "New Window" action -> new activity instance (documentLaunchMode),
+        per-window workspace, shared terminal service           -> REQ 7
+[x] P1  Editor reading controls: font size / line height / word wrap from
+        presets pushed into Monaco                              -> REQ 2
+[x] P1  Real PTY (JNI forkpty shim) + proot + Alpine sandbox DONE — verified
+        on-device end to end: "Install Linux" downloads proot (Termux mirror) +
+        Alpine minirootfs at runtime (SHA-256 checked), boots a fake-root Alpine
+        shell, and `apk add git` installed git 2.45.4 over the network. targetSdk
+        pinned to 28 so downloaded binaries may exec (Termux approach)  -> REQ 5
+[x] P1  Input accessory bar above keyboard (Tab/undo/redo/arrows/Home/End +
+        symbol keys into Monaco; esc/Tab/^C row in terminal)    -> REQ 2
+[x] P1  Create / rename / delete files and folders from the Explorer
+        (header icons for root; long-press context menu on rows)
+[x] P1  Touch-editing spike verdict: Monaco stays (typing, saving, selection
+        all work after the WebView focus fix); EditorController interface
+        kept so CodeMirror 6 remains a drop-in fallback
+
+--- P2 · v1.x ----------------------------------------------------------------
+[x] P2  ANSI/colour terminal rendering — TerminalEmulator (SGR 16/256-colour,
+        bold/underline/reverse, \r line-overwrite for progress bars, ESC[K,
+        OSC swallow); rendered as AnnotatedString. Verified: `ls --color`
+        shows blue dirs, colour escapes render.                  -> REQ 5
+[x] P2  Search across files — Search side panel: debounced query, recursive
+        SAF tree walk (skips .git/node_modules/build/binary files, bounded
+        files+hits, cancellable), results grouped by file with line numbers +
+        highlighted match; tap a hit to open the file and jump to the line
+        (Monaco revealLineInCenter). Matcher/skip logic unit-tested.  -> REQ 1
+[ ] P2  Git panel: status/diff/commit over the CLI in the sandbox
+[ ] P2  Phase A extensions: declarative add-ons (grammars, themes, snippets,
+        LSP recipes) with per-file SPDX license audit           -> REQ 4
+[ ] P2  LSP client (monaco-languageclient) + server supervisor; servers are
+        user-installed in the sandbox, never bundled            -> REQ 3
+[ ] P2  Theme import: read standard theme-JSON *format* (never copy the
+        contents of proprietary bundled themes)                 -> REQ 2/IP
+[ ] P2  Split editor groups (side-by-side tabs in one window)   -> REQ 6
+
+--- P3 · later ---------------------------------------------------------------
+[ ] P3  Kodelab plugin API (first-party, sandboxed workers, signed)  -> REQ 4
+[ ] P3  Open VSX catalogue behind a compat shim, ONLY if maintainable; the
+        Microsoft Marketplace stays prohibited by its own terms -> REQ 4/IP
+[ ] P3  Debug Adapter Protocol, remote/SSH workspaces, settings sync
+
+--- Standing IP rules (docs/IP-SAFETY.md) ------------------------------------
+Original name/branding; MIT/Apache/OFL components only in the APK; GPL tools
+(proot) as separate unmodified processes with source offer; rootfs downloaded
+from distro mirrors at runtime; no Microsoft Marketplace; no Termux code.

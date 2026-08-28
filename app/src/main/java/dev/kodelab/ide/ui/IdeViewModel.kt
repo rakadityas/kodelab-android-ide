@@ -6,9 +6,13 @@ import androidx.lifecycle.viewModelScope
 import dev.kodelab.ide.editor.EditorController
 import dev.kodelab.ide.editor.Languages
 import dev.kodelab.ide.theme.KodelabThemes
+import dev.kodelab.ide.workspace.FileMatches
+import dev.kodelab.ide.workspace.SearchMatch
 import dev.kodelab.ide.workspace.SettingsStore
 import dev.kodelab.ide.workspace.WorkspacePresets
 import dev.kodelab.ide.workspace.WorkspaceRepository
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -126,24 +130,33 @@ class IdeViewModel(
 
     override fun openFile(node: FileNode) {
         if (node.isDir) { toggleDir(node); return }
-        val existing = _state.value.tabs.firstOrNull { it.uri == node.uri }
-        if (existing != null) { selectTab(existing.id); return }
+        openDocument(node.uri, node.name)
+    }
 
+    /** Open [uri] into a tab (reusing an existing one), optionally jumping to [revealLine]. */
+    private fun openDocument(uri: Uri, name: String, revealLine: Int? = null) {
+        val existing = _state.value.tabs.firstOrNull { it.uri == uri }
+        if (existing != null) {
+            selectTab(existing.id)
+            revealLine?.let { editor.revealLine(existing.id, it) }
+            return
+        }
         viewModelScope.launch {
-            val text = repo.readText(node.uri)
+            val text = repo.readText(uri)
             if (text == null) {
-                _state.update { it.copy(statusText = "Can't read ${node.name}") }
+                _state.update { it.copy(statusText = "Can't read $name") }
                 return@launch
             }
-            val lang = Languages.forFileName(node.name)
-            val tab = EditorTab(UUID.randomUUID().toString(), node.name, node.uri, lang)
+            val lang = Languages.forFileName(name)
+            val tab = EditorTab(UUID.randomUUID().toString(), name, uri, lang)
             _state.update { s ->
                 // a new open replaces the current preview tab, VS-style
                 val tabs = s.tabs.filterNot { it.preview && !it.dirty } + tab.copy(preview = false)
-                s.copy(tabs = tabs, activeTabId = tab.id, statusText = node.name)
+                s.copy(tabs = tabs, activeTabId = tab.id, statusText = name)
             }
             editor.openBuffer(tab.id, text, lang)
             editor.showBuffer(tab.id)
+            revealLine?.let { editor.revealLine(tab.id, it) }
         }
     }
 
@@ -320,6 +333,51 @@ class IdeViewModel(
     override fun togglePanel() = _state.update { it.copy(panelVisible = !it.panelVisible) }
     override fun setSidebarView(view: SidebarView) =
         _state.update { it.copy(sidebarView = view, sidebarVisible = true) }
+
+    // ---------- search across files (REQ 1) ----------
+
+    private var searchJob: Job? = null
+
+    override fun searchQueryChanged(query: String) {
+        _state.update { it.copy(searchQuery = query) }
+        // debounce typing; a blank query just clears results
+        searchJob?.cancel()
+        if (query.isBlank()) {
+            _state.update { it.copy(searchResults = emptyList(), searching = false, searchSummary = null) }
+            return
+        }
+        searchJob = viewModelScope.launch {
+            delay(300)
+            performSearch(query)
+        }
+    }
+
+    override fun runSearch() {
+        val q = _state.value.searchQuery
+        if (q.isBlank()) return
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch { performSearch(q) }
+    }
+
+    private suspend fun performSearch(query: String) {
+        val tree = _state.value.workspaceUri ?: run {
+            _state.update { it.copy(searchSummary = "Open a folder to search") }
+            return
+        }
+        _state.update { it.copy(searching = true) }
+        val results = repo.search(tree, query)
+        val hits = results.sumOf { it.matches.size }
+        val summary = when {
+            hits == 0 -> "No results"
+            else -> "$hits ${plural(hits, "result")} in ${results.size} ${plural(results.size, "file")}"
+        }
+        _state.update { it.copy(searchResults = results, searching = false, searchSummary = summary) }
+    }
+
+    override fun openSearchHit(file: FileMatches, match: SearchMatch) =
+        openDocument(file.uri, file.name, revealLine = match.line)
+
+    private fun plural(n: Int, word: String) = if (n == 1) word else word + "s"
 
     // ---------- theme & presets (REQ 2 / REQ 8) ----------
 

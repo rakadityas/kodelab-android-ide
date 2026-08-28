@@ -83,6 +83,7 @@ import dev.kodelab.ide.editor.EditorWebView
 import dev.kodelab.ide.terminal.SandboxInstaller
 import dev.kodelab.ide.terminal.TerminalEmulator
 import dev.kodelab.ide.terminal.TerminalHost
+import dev.kodelab.ide.theme.EditorPalette
 import dev.kodelab.ide.theme.LocalEditorPalette
 import dev.kodelab.ide.workspace.WorkspaceRepository
 
@@ -253,7 +254,7 @@ private fun SidePanel(
         Spacer(Modifier.height(6.dp))
         when (state.sidebarView) {
             SidebarView.EXPLORER -> ExplorerTree(state, actions)
-            SidebarView.SEARCH -> PanelPlaceholder("Search across files arrives in v1.x.")
+            SidebarView.SEARCH -> SearchPanel(state, actions)
             SidebarView.GIT -> PanelPlaceholder("Git panel arrives in v1.x — use git in the terminal meanwhile.")
             SidebarView.EXTENSIONS -> PanelPlaceholder(
                 "Declarative add-ons (grammars, themes, snippets) arrive in v1.x.\n\n" +
@@ -262,6 +263,125 @@ private fun SidePanel(
             )
         }
     }
+}
+
+@Composable
+private fun SearchPanel(state: IdeUiState, actions: IdeActions) {
+    val palette = LocalEditorPalette.current
+    Column(Modifier.fillMaxWidth()) {
+        BasicTextField(
+            value = state.searchQuery,
+            onValueChange = actions::searchQueryChanged,
+            textStyle = TextStyle(color = palette.textPrimary, fontSize = 13.sp),
+            cursorBrush = SolidColor(palette.accent),
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search, autoCorrectEnabled = false),
+            keyboardActions = KeyboardActions(onSearch = { actions.runSearch() }),
+            decorationBox = { inner ->
+                Row(
+                    Modifier.fillMaxWidth().background(palette.surface, RoundedCornerShape(6.dp))
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Icon(
+                        Icons.Filled.Search, contentDescription = null,
+                        tint = palette.textMuted, modifier = Modifier.size(15.dp),
+                    )
+                    Box(Modifier.weight(1f)) {
+                        if (state.searchQuery.isEmpty()) {
+                            Text("Search in files…", color = palette.textMuted, fontSize = 13.sp)
+                        }
+                        inner()
+                    }
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(6.dp))
+        val summary = when {
+            state.searching -> "Searching…"
+            else -> state.searchSummary
+        }
+        summary?.let {
+            Text(
+                it, color = palette.textMuted, fontSize = 11.sp,
+                modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp),
+            )
+            Spacer(Modifier.height(4.dp))
+        }
+        LazyColumn(Modifier.fillMaxWidth()) {
+            state.searchResults.forEach { file ->
+                item(key = "f:" + file.path) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Icon(
+                            Icons.Filled.Description, contentDescription = null,
+                            tint = palette.textMuted, modifier = Modifier.size(13.dp),
+                        )
+                        Text(
+                            file.name, color = palette.textPrimary, fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold, maxLines = 1,
+                        )
+                        Text(
+                            file.matches.size.toString(), color = palette.textMuted, fontSize = 11.sp,
+                        )
+                    }
+                }
+                items(file.matches, key = { m -> "m:" + file.path + ":" + m.line + ":" + m.start }) { m ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(4.dp))
+                            .clickable { actions.openSearchHit(file, m) }
+                            .padding(start = 18.dp, top = 3.dp, bottom = 3.dp, end = 2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text(
+                            m.line.toString(), color = palette.textMuted, fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                        )
+                        Text(
+                            searchHitLine(m.text, m.start, m.end, palette),
+                            fontSize = 12.sp, maxLines = 1,
+                            fontFamily = FontFamily.Monospace,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun searchHitLine(
+    text: String,
+    start: Int,
+    end: Int,
+    palette: EditorPalette,
+): androidx.compose.ui.text.AnnotatedString = androidx.compose.ui.text.buildAnnotatedString {
+    // Trim leading whitespace for readability but keep the match visible.
+    val leading = text.takeWhile { it == ' ' || it == '\t' }.length
+    val s = (start - leading).coerceIn(0, text.length)
+    val e = (end - leading).coerceIn(s, text.length)
+    val body = text.drop(leading)
+    pushStyle(androidx.compose.ui.text.SpanStyle(color = palette.textMuted))
+    append(body.take(s))
+    pop()
+    pushStyle(
+        androidx.compose.ui.text.SpanStyle(
+            color = palette.textPrimary,
+            background = palette.accentMuted,
+            fontWeight = FontWeight.Bold,
+        ),
+    )
+    append(body.substring(s, e))
+    pop()
+    pushStyle(androidx.compose.ui.text.SpanStyle(color = palette.textMuted))
+    append(body.drop(e))
+    pop()
 }
 
 @Composable
