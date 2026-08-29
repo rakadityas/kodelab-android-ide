@@ -12,11 +12,13 @@ android {
     defaultConfig {
         applicationId = "dev.kodelab.ide"
         minSdk = 29
-        // targetSdk 28 on purpose (the Termux approach): apps targeting 29+ are
-        // denied execve() on files in app storage, which would make the runtime-
-        // downloaded proot/rootfs sandbox impossible. Distribution channel is
-        // F-Droid / direct APK (see docs/ROADMAP.md "Play Store policy" risk).
-        targetSdk = 28
+        // Target a current API so the platform doesn't flag the app as "built for
+        // an older version of Android" (a user-facing security warning). Apps
+        // targeting 29+ can't execve() files in app storage directly, so the
+        // runtime-downloaded proot is launched through the system linker
+        // (/system/bin/linker64) instead — see SandboxInstaller.execPrefix.
+        // Distribution stays F-Droid / direct APK (see docs/ROADMAP.md).
+        targetSdk = 35
         versionCode = 1
         versionName = "0.1.0-m0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

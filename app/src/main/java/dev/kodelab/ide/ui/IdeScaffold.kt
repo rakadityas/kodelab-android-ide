@@ -3,6 +3,7 @@ package dev.kodelab.ide.ui
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -157,17 +158,24 @@ private fun ActivityRail(state: IdeUiState, actions: IdeActions, viewModel: IdeV
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        RailButton(Icons.Filled.FolderOpen, state.sidebarView == SidebarView.EXPLORER, "Explorer") {
-            actions.setSidebarView(SidebarView.EXPLORER)
+        // Tapping the active view collapses the side panel (VS Code behaviour),
+        // so the panel is dismissable on a small screen.
+        fun onView(view: SidebarView) {
+            if (state.sidebarVisible && state.sidebarView == view) actions.toggleSidebar()
+            else actions.setSidebarView(view)
         }
-        RailButton(Icons.Filled.Search, state.sidebarView == SidebarView.SEARCH, "Search") {
-            actions.setSidebarView(SidebarView.SEARCH)
+        fun activeView(view: SidebarView) = state.sidebarVisible && state.sidebarView == view
+        RailButton(Icons.Filled.FolderOpen, activeView(SidebarView.EXPLORER), "Explorer") {
+            onView(SidebarView.EXPLORER)
         }
-        RailButton(Icons.Filled.Source, state.sidebarView == SidebarView.GIT, "Git") {
-            actions.setSidebarView(SidebarView.GIT)
+        RailButton(Icons.Filled.Search, activeView(SidebarView.SEARCH), "Search") {
+            onView(SidebarView.SEARCH)
         }
-        RailButton(Icons.Filled.Extension, state.sidebarView == SidebarView.EXTENSIONS, "Extensions") {
-            actions.setSidebarView(SidebarView.EXTENSIONS)
+        RailButton(Icons.Filled.Source, activeView(SidebarView.GIT), "Git") {
+            onView(SidebarView.GIT)
+        }
+        RailButton(Icons.Filled.Extension, activeView(SidebarView.EXTENSIONS), "Extensions") {
+            onView(SidebarView.EXTENSIONS)
         }
         Spacer(Modifier.weight(1f))
         RailButton(Icons.Filled.Save, false, "Save file") { actions.saveActiveTab() }
@@ -247,11 +255,24 @@ private fun SidePanel(
                         )
                     }
                 }
-                IconButton(onClick = { viewModel.requestOpenFolder() }, modifier = Modifier.size(28.dp)) {
-                    Icon(
-                        Icons.Filled.FolderOpen, contentDescription = "Open folder",
-                        tint = palette.textMuted, modifier = Modifier.size(16.dp),
-                    )
+                var openMenu by remember { mutableStateOf(false) }
+                Box {
+                    IconButton(onClick = { openMenu = true }, modifier = Modifier.size(28.dp)) {
+                        Icon(
+                            Icons.Filled.FolderOpen, contentDescription = "Open folder",
+                            tint = palette.textMuted, modifier = Modifier.size(16.dp),
+                        )
+                    }
+                    DropdownMenu(expanded = openMenu, onDismissRequest = { openMenu = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Open folder…") },
+                            onClick = { openMenu = false; viewModel.requestOpenFolder() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Open from terminal (Alpine home)") },
+                            onClick = { openMenu = false; viewModel.openSandboxHome() },
+                        )
+                    }
                 }
             }
         }
@@ -850,6 +871,7 @@ private fun TerminalPanel(state: IdeUiState, modifier: Modifier) {
 
     var input by remember { mutableStateOf("") }
     val scroll = rememberScrollState()
+    val inputFocus = remember { FocusRequester() }
     LaunchedEffect(screen) { scroll.scrollTo(scroll.maxValue) }
 
     Column(modifier.background(palette.chrome)) {
@@ -895,13 +917,18 @@ private fun TerminalPanel(state: IdeUiState, modifier: Modifier) {
         }
         Column(
             Modifier.weight(1f).fillMaxWidth().background(palette.surface)
+                // tapping the terminal body focuses the input and raises the keyboard
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                ) { runCatching { inputFocus.requestFocus() } }
                 .verticalScroll(scroll)
                 .horizontalScroll(rememberScrollState())
                 .padding(8.dp),
         ) {
             if (screen.isEmpty()) {
                 Text(
-                    "connecting to terminal service…",
+                    "tap here and type a command below — the keyboard opens on tap",
                     color = palette.textMuted,
                     fontFamily = FontFamily.Monospace, fontSize = 12.sp,
                 )
@@ -939,7 +966,7 @@ private fun TerminalPanel(state: IdeUiState, modifier: Modifier) {
                     input = ""
                     session?.exec(cmd)
                 }),
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).focusRequester(inputFocus),
             )
         }
     }

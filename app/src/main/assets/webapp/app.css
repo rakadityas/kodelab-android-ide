@@ -14,7 +14,10 @@ body {
   font: 14px/1.6 "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
 }
 .pane { position: absolute; inset: 0; }
-#fallback { display: flex; flex-direction: column; }
+/* The hidden attribute must always win over the display rules below, or an
+   inactive pane (e.g. the fallback) shows through an empty editor. */
+[hidden] { display: none !important; }
+#fallback { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
 .hint {
   padding: 8px 12px; font-size: 12px; color: var(--textMuted);
   border-bottom: 1px solid var(--border); background: var(--panel);

@@ -1,6 +1,7 @@
 package dev.kodelab.ide.terminal
 
 import android.content.Context
+import android.os.Build
 import android.system.Os
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,8 +30,9 @@ import java.security.MessageDigest
  *    against the mirror's latest-releases.yaml.
  *
  * Everything lands in filesDir/sandbox; running the shell through proot is
- * ShellSession's job. Requires targetSdk 28 so the downloaded binaries are
- * allowed to exec from app storage (the Termux approach).
+ * ShellSession's job. On targetSdk 29+ the app can't execve() app-storage files
+ * directly (W^X), so proot is launched through the system linker — see
+ * [execPrefix].
  */
 class SandboxInstaller(private val context: Context) {
 
@@ -55,6 +57,25 @@ class SandboxInstaller(private val context: Context) {
     private val marker: File get() = File(sandboxDir, ".installed")
 
     val isInstalled: Boolean get() = marker.exists()
+
+    /**
+     * Prefix to run an app-private ELF (proot) with. When the app targets API 29+
+     * the platform forbids execve() of files in app storage (W^X), so we launch
+     * proot through the system dynamic linker, which is permitted. Empty when the
+     * app targets ≤28 (direct exec is allowed) — keeping that verified path intact.
+     */
+    val execPrefix: List<String>
+        get() {
+            val targetsQPlus = context.applicationInfo.targetSdkVersion >= Build.VERSION_CODES.Q
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || !targetsQPlus) return emptyList()
+            val linker64 = File("/system/bin/linker64")
+            val linker = File("/system/bin/linker")
+            return when {
+                linker64.exists() -> listOf(linker64.path)
+                linker.exists() -> listOf(linker.path)
+                else -> emptyList()
+            }
+        }
 
     suspend fun install() = withContext(Dispatchers.IO) {
         if (isInstalled) return@withContext

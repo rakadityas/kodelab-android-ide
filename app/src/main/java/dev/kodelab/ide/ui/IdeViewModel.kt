@@ -728,6 +728,7 @@ class IdeViewModel(
             PaletteItem("cmd.save", "Save file", "writes the active tab to disk", PaletteKind.COMMAND),
             PaletteItem("cmd.newFile", "New untitled file", null, PaletteKind.COMMAND),
             PaletteItem("cmd.openFolder", "Open folder…", "pick a workspace with the system picker", PaletteKind.COMMAND),
+            PaletteItem("cmd.openSandboxHome", "Open Alpine home", "browse a repo cloned in the terminal", PaletteKind.COMMAND),
             PaletteItem("cmd.newWindow", "New window", "another Kodelab window, same terminal", PaletteKind.COMMAND),
             PaletteItem("cmd.toggleTerminal", "Toggle terminal panel", null, PaletteKind.COMMAND),
             PaletteItem("cmd.toggleSidebar", "Toggle side panel", null, PaletteKind.COMMAND),
@@ -771,6 +772,7 @@ class IdeViewModel(
             item.id == "cmd.save" -> saveActiveTab()
             item.id == "cmd.newFile" -> newUntitled()
             item.id == "cmd.openFolder" -> _events.tryEmit(IdeEvent.OpenFolderPicker)
+            item.id == "cmd.openSandboxHome" -> openSandboxHome()
             item.id == "cmd.newWindow" -> _events.tryEmit(IdeEvent.NewWindow)
             item.id == "cmd.toggleTerminal" -> togglePanel()
             item.id == "cmd.toggleSidebar" -> toggleSidebar()
@@ -791,6 +793,21 @@ class IdeViewModel(
 
     fun requestOpenFolder() { _events.tryEmit(IdeEvent.OpenFolderPicker) }
     fun requestNewWindow() { _events.tryEmit(IdeEvent.NewWindow) }
+
+    /** Open a directory from the Alpine sandbox (e.g. a repo cloned in the terminal). */
+    fun openSandboxHome() {
+        val sandbox = TerminalHost.service.value?.sandbox
+        if (sandbox == null || !sandbox.isInstalled) {
+            _state.update { it.copy(statusText = "Install the Linux sandbox first (terminal → Install Linux)") }
+            return
+        }
+        val home = java.io.File(sandbox.rootfsDir, "root")
+        if (!home.isDirectory) {
+            _state.update { it.copy(statusText = "Alpine home not found — open the terminal first") }
+            return
+        }
+        openFolder(android.net.Uri.fromFile(home))
+    }
 
     // ---------- events from the web editor ----------
 

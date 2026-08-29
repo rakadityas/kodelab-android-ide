@@ -16,6 +16,26 @@ Priority P0 = product doesn't work without it, P1 = v1 must-have, P2 = v1.x, P3 
 ================================================================================
 
 --- P0 · make it a working product (this pass) -------------------------------
+[x] P0  bug (security "older Android"): raised targetSdk 28 -> 35 to clear the
+        platform warning. Since API 29+ forbids execve() of app-storage files,
+        proot is now launched via the system linker (/system/bin/linker64) —
+        SandboxInstaller.execPrefix, applied in ShellSession/SandboxShell/
+        SandboxProcess; gated on targetSdk>=29 so the ≤28 path is untouched.
+        NOTE: the linker-exec path needs on-device re-validation (SELinux varies).
+[x] P0  bug (terminal keyboard): tapping the terminal body now focuses the input
+        row via a FocusRequester, which raises the soft keyboard.
+[x] P0  bug (side panel not collapsible): tapping the active activity-rail icon
+        now toggles the side panel (VS Code behaviour); highlight tracks visibility.
+[x] P0  bug (Monaco "run build-web.sh" alert): root cause was CSS — #fallback had
+        display:flex, overriding the hidden attribute, so it showed through an
+        empty editor. Added [hidden]{display:none!important}; reworded the message
+        to be user-facing.
+[x] P0  bug (open folder two paths): the Explorer open-folder button is now a menu
+        — "Open folder…" (SAF) or "Open from terminal (Alpine home)". Added a
+        file:// workspace provider to WorkspaceRepository (list/read/write/file-ops/
+        presets/themes/extensions) so a repo cloned in the terminal opens directly.
+        Also a "Open Alpine home" command-palette entry.
+
 [x] P0  Open a folder (Storage Access Framework tree picker), persist permission,
         show a real file tree in the Explorer side panel        -> REQ 1/6
 [x] P0  Open files from the tree into tabs; per-tab Monaco models in the web

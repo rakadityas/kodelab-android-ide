@@ -75,6 +75,7 @@ class SandboxProcess(
     }
 
     private fun buildProotArgv(): List<String> = buildList {
+        addAll(sandbox.execPrefix) // launch proot via the system linker on targetSdk 29+
         add(sandbox.prootBin.path)
         add("--link2symlink")
         add("-0")

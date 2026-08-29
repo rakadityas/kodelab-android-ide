@@ -119,7 +119,8 @@ class ShellSession(
     private fun sandboxCommand(): Triple<Array<String>, Array<String>, String?> {
         val sb = sandbox!!
         val r = sb.rootfsDir.path
-        val argv = arrayOf(
+        // On targetSdk 29+ proot is launched through the system linker (execPrefix).
+        val argv = (sb.execPrefix + listOf(
             sb.prootBin.path,
             "--link2symlink",
             "-0",
@@ -134,7 +135,7 @@ class ShellSession(
             "LANG=C.UTF-8",
             "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
             "/bin/sh", "-l",
-        )
+        )).toTypedArray()
         val envp = arrayOf(
             "LD_LIBRARY_PATH=${sb.libDir.path}",
             "PROOT_TMP_DIR=${sb.tmpDir.path}",
