@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Kodelab Editor</title>
+<link rel="stylesheet" href="./app.css">
+</head>
+<body>
+  <div id="root">
+    <div id="fallback" class="pane" hidden>
+      <div class="hint">The editor couldn't load. Please reinstall or update Kodelab.</div>
+    </div>
+    <div id="monaco" class="pane" hidden></div>
+    <!-- Selection affordance: a single button that appears when you highlight
+         text, and only expands into a menu when tapped. Replaces Monaco's
+         long-press context menu, which could be opened but not dismissed. -->
+    <button id="sel-chip" type="button" hidden>Actions</button>
+    <div id="sel-menu" hidden>
+      <button type="button" data-act="findReferences">Find references</button>
+      <button type="button" data-act="goToDefinition">Go to definition</button>
+      <button type="button" data-act="copy">Copy</button>
+      <button type="button" data-act="dismiss" class="dismiss">Dismiss</button>
+    </div>
+  </div>
+  <script src="./app.js"></script>
+</body>
+</html>

@@ -1,0 +1,71 @@
+:root {
+  --surface: #11171a;
+  --panel: #171f24;
+  --textPrimary: #e7edee;
+  --textMuted: #9aacb2;
+  --accent: #3fb6c4;
+  --border: #2b373d;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body, #root { height: 100%; width: 100%; overflow: hidden; }
+body {
+  background: var(--surface);
+  color: var(--textPrimary);
+  font: 14px/1.6 "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+.pane { position: absolute; inset: 0; }
+/* The hidden attribute must always win over the display rules below, or an
+   inactive pane (e.g. the fallback) shows through an empty editor. */
+[hidden] { display: none !important; }
+#fallback { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.hint {
+  padding: 8px 12px; font-size: 12px; color: var(--textMuted);
+  border-bottom: 1px solid var(--border); background: var(--panel);
+}
+#ta {
+  flex: 1; width: 100%; resize: none; border: 0; outline: 0;
+  background: var(--surface); color: var(--textPrimary);
+  font: inherit; padding: 12px; tab-size: 4;
+}
+
+
+/* ---- selection actions (see index.html) ------------------------------- */
+
+#sel-chip {
+  position: absolute;
+  z-index: 40;
+  padding: 7px 12px;
+  border: 1px solid var(--border, #3a4048);
+  border-radius: 16px;
+  background: var(--accent, #3b82f6);
+  color: #fff;
+  font: 600 12px/1 system-ui, sans-serif;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .35);
+}
+
+#sel-menu {
+  position: absolute;
+  z-index: 41;
+  display: flex;
+  flex-direction: column;
+  min-width: 190px;
+  padding: 4px;
+  border: 1px solid var(--border, #3a4048);
+  border-radius: 8px;
+  background: var(--overlay, #21262d);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .45);
+}
+
+#sel-menu button {
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary, #c9d1d9);
+  font: 13px/1 system-ui, sans-serif;
+  text-align: left;
+}
+
+#sel-menu button:active { background: var(--panel, #2d333b); }
+#sel-menu button.dismiss { color: var(--text-muted, #8b949e); }
+#sel-chip[hidden], #sel-menu[hidden] { display: none !important; }

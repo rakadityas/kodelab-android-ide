@@ -1,0 +1,19 @@
+{
+  "name": "Sample Midnight",
+  "type": "dark",
+  "colors": {
+    "editor.background": "#0f1420",
+    "editor.foreground": "#d6def0",
+    "activityBar.background": "#0b0f18",
+    "sideBar.background": "#111726",
+    "editorWidget.background": "#18203040",
+    "focusBorder": "#5aa9e6",
+    "tab.activeBackground": "#0f1420",
+    "tab.inactiveBackground": "#111726",
+    "descriptionForeground": "#8ea0c0",
+    "panel.border": "#22304a",
+    "editorError.foreground": "#e06c75",
+    "editorWarning.foreground": "#e5c07b",
+    "gitDecoration.addedResourceForeground": "#7fd6a2"
+  }
+}

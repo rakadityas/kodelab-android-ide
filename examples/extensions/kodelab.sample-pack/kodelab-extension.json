@@ -1,0 +1,39 @@
+{
+  "id": "kodelab.sample-pack",
+  "name": "Sample Pack",
+  "version": "1.0.0",
+  "publisher": "kodelab",
+  "license": "MIT",
+  "description": "Example declarative extension: a theme, snippets, a language registration, and an LSP recipe. Copy this folder into a workspace's .kodelab/extensions/ to try it.",
+  "contributes": {
+    "themes": [
+      { "label": "Sample Midnight", "file": "sample-midnight.json", "license": "MIT" }
+    ],
+    "snippets": [
+      {
+        "name": "main() — Kotlin",
+        "prefix": "main",
+        "languages": ["kotlin"],
+        "description": "Kotlin entry point",
+        "body": ["fun main() {", "    ${1:// ...}", "}$0"]
+      },
+      {
+        "name": "TODO comment",
+        "prefix": "todo",
+        "description": "A tracked TODO",
+        "body": "// TODO(${1:you}): ${2:describe}$0"
+      }
+    ],
+    "grammars": [
+      { "languageId": "kotlin", "extensions": [".kt", ".kts"], "license": "MIT" }
+    ],
+    "languageServers": [
+      {
+        "languageId": "python",
+        "install": ["apk add py3-pip", "pip install pyright"],
+        "command": ["pyright-langserver", "--stdio"],
+        "license": "MIT"
+      }
+    ]
+  }
+}

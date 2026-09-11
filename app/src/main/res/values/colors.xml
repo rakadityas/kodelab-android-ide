@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      The window background the system paints before Compose draws its first
+      frame. It is KodelabThemes.light.panel — the colour behind the editor's
+      tabs — so launching is seamless rather than a flash of a different grey.
+      Keep in step with KodelabTheme.kt.
+    -->
+    <color name="kodelab_window">#FFF0F4F5</color>
+</resources>

@@ -1,0 +1,187 @@
+package dev.kodelab.ide.editor
+
+import android.annotation.SuppressLint
+import android.os.Handler
+import android.os.Looper
+import android.view.ViewGroup
+import android.webkit.WebView
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.webkit.WebViewAssetLoader
+import androidx.webkit.WebViewClientCompat
+import dev.kodelab.ide.lsp.LspDiagnostic
+import dev.kodelab.ide.theme.EditorPalette
+import dev.kodelab.ide.workspace.WorkspacePresets
+import org.json.JSONArray
+import org.json.JSONObject
+
+private const val APP_ORIGIN = "https://appassets.androidplatform.net"
+
+/** Thin controller so the rest of the app can push messages into the editor. */
+class EditorController {
+    internal var webView: WebView? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    fun send(method: String, params: JSONObject = JSONObject()) {
+        val payload = JSONObject().put("method", method).put("params", params).toString()
+        // Bridge events arrive on the JavaBridge thread; WebView methods are main-only.
+        mainHandler.post {
+            webView?.evaluateJavascript(
+                "window.__kodelab && window.__kodelab.receive($payload);", null,
+            )
+        }
+    }
+
+    fun applyTheme(palette: EditorPalette) {
+        val tokens = JSONObject()
+        palette.toWebTokens().forEach { (k, v) -> tokens.put(k, v) }
+        send("theme.apply", JSONObject().put("tokens", tokens))
+    }
+
+    /** Reading controls from the workspace presets (REQ 2/8). */
+    fun applySettings(presets: WorkspacePresets) {
+        send(
+            "settings.apply",
+            JSONObject()
+                .put("fontSize", presets.fontSizeSp)
+                .put("fontFamily", presets.fontFamily)
+                .put("lineHeight", presets.lineHeight.toDouble())
+                .put("ligatures", presets.ligatures)
+                .put("wordWrap", presets.wordWrap)
+                .put("tabWidth", presets.tabWidth)
+                .put("insertSpaces", presets.insertSpaces)
+                .put("selectionDelayMs", presets.selectionDelayMs)
+                // reading mode -> Monaco read-only, so the soft keyboard never opens
+                .put("readOnly", !presets.editMode),
+        )
+    }
+
+    fun openBuffer(tabId: String, text: String, languageId: String) =
+        send(
+            "buffer.open",
+            JSONObject().put("tabId", tabId).put("text", text).put("languageId", languageId),
+        )
+
+    /** Render LSP diagnostics as Monaco markers on a tab (converts to 1-based coords + severity). */
+    fun pushDiagnostics(tabId: String, diagnostics: List<LspDiagnostic>) {
+        val markers = JSONArray()
+        diagnostics.forEach { d ->
+            markers.put(
+                JSONObject()
+                    .put("startLineNumber", d.startLine + 1).put("startColumn", d.startChar + 1)
+                    .put("endLineNumber", d.endLine + 1).put("endColumn", d.endChar + 1)
+                    .put("message", d.message)
+                    .put("severity", monacoSeverity(d.severity))
+                    .put("source", d.source ?: "lsp"),
+            )
+        }
+        send("lsp.diagnostics", JSONObject().put("tabId", tabId).put("markers", markers))
+    }
+
+    /** LSP severity (1 Error…4 Hint) -> Monaco MarkerSeverity (Error 8, Warning 4, Info 2, Hint 1). */
+    private fun monacoSeverity(lsp: Int): Int = when (lsp) {
+        1 -> 8
+        2 -> 4
+        3 -> 2
+        else -> 1
+    }
+
+    fun showBuffer(tabId: String) = send("buffer.show", JSONObject().put("tabId", tabId))
+    fun revealLine(tabId: String, line: Int) =
+        send("buffer.reveal", JSONObject().put("tabId", tabId).put("line", line))
+    /** Insert a snippet (with $1/$0 tab stops) at the cursor via Monaco. */
+    fun insertSnippet(snippet: String) =
+        send("input.snippet", JSONObject().put("snippet", snippet))
+    fun closeBuffer(tabId: String) = send("buffer.close", JSONObject().put("tabId", tabId))
+    fun requestSave(tabId: String) = send("buffer.requestSave", JSONObject().put("tabId", tabId))
+    /** Ask the editor to post the selected symbol back under [reply]. */
+    fun requestSymbol(reply: String) =
+        send("editor.requestSymbol", JSONObject().put("reply", reply))
+
+    fun markSaved(tabId: String) = send("buffer.markSaved", JSONObject().put("tabId", tabId))
+}
+
+@SuppressLint("SetJavaScriptEnabled")
+@Composable
+fun EditorWebView(
+    controller: EditorController,
+    palette: EditorPalette,
+    onEvent: (method: String, params: String) -> Unit,
+    modifier: Modifier = Modifier,
+    editMode: Boolean = true,
+) {
+    val bridge = remember { EditorBridge(onEvent) }
+
+    AndroidView(
+        modifier = modifier,
+        factory = { context ->
+            val assetLoader = WebViewAssetLoader.Builder()
+                .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(context))
+                .build()
+
+            WebView(context).apply {
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT,
+                )
+                // Without explicit view focus the soft keyboard never opens for
+                // Monaco's hidden textarea when the WebView sits inside Compose.
+                isFocusable = true
+                isFocusableInTouchMode = true
+                // Only pull view focus (which raises the keyboard) in edit mode.
+                // In reading mode Monaco is read-only and we leave focus alone.
+                setOnTouchListener { v, _ -> if (editMode) v.requestFocus(); false }
+                settings.apply {
+                    javaScriptEnabled = true
+                    domStorageEnabled = true
+                    allowFileAccess = false
+                    allowContentAccess = false
+                    setSupportZoom(false)
+                    mediaPlaybackRequiresUserGesture = true
+                }
+                WebView.setWebContentsDebuggingEnabled(true)
+                webChromeClient = object : android.webkit.WebChromeClient() {
+                    override fun onConsoleMessage(msg: android.webkit.ConsoleMessage): Boolean {
+                        android.util.Log.d(
+                            "KodelabWeb",
+                            "${msg.messageLevel()} ${msg.sourceId()}:${msg.lineNumber()} ${msg.message()}",
+                        )
+                        return true
+                    }
+                }
+                addJavascriptInterface(bridge, EditorBridge.NAME)
+                webViewClient = object : WebViewClientCompat() {
+                    override fun shouldInterceptRequest(view: WebView, request: android.webkit.WebResourceRequest) =
+                        assetLoader.shouldInterceptRequest(request.url)
+
+                    override fun onPageFinished(view: WebView, url: String) {
+                        controller.applyTheme(palette)
+                    }
+
+                    @Deprecated("kept for < API 24 parity")
+                    override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean =
+                        !url.startsWith(APP_ORIGIN)
+                }
+                loadUrl("$APP_ORIGIN/assets/webapp/index.html")
+                controller.webView = this
+            }
+        },
+        update = {
+            controller.webView = it
+            controller.applyTheme(palette) // recomposes on theme change — keep Monaco in sync
+            it.setOnTouchListener { v, _ -> if (editMode) v.requestFocus(); false }
+            if (!editMode) {
+                it.clearFocus()
+                val imm = it.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+                    as? android.view.inputmethod.InputMethodManager
+                imm?.hideSoftInputFromWindow(it.windowToken, 0)
+            }
+        },
+        onRelease = {
+            it.removeJavascriptInterface(EditorBridge.NAME)
+            it.destroy()
+            controller.webView = null
+        },
+    )
+}
