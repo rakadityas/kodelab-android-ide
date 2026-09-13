@@ -20,6 +20,18 @@ data class EditorTab(
 
 enum class SidebarView { EXPLORER, SEARCH, GIT, EXTENSIONS }
 
+/**
+ * One place the editor has been: which tab, and the line within it. [uri] is
+ * kept so a location survives its tab being closed — going back reopens the
+ * file rather than dead-ending.
+ */
+data class NavLocation(
+    val tabId: String,
+    val uri: Uri?,
+    val title: String,
+    val line: Int,
+)
+
 /** A user-imported theme (from a JSON file under `.kodelab/themes`), resolved to a palette. */
 data class CustomTheme(val id: String, val name: String, val palette: EditorPalette)
 
@@ -105,6 +117,9 @@ data class IdeUiState(
     val paletteOpen: Boolean = false,
     val paletteQuery: String = "",
     val paletteItems: List<PaletteItem> = emptyList(),
+    // --- navigation history (the floating back/forward pair) ---
+    val canNavigateBack: Boolean = false,
+    val canNavigateForward: Boolean = false,
     /** Tab awaiting a keep/discard decision because it has unsaved changes. */
     val pendingCloseTabId: String? = null,
     val pendingFileOp: FileOpRequest? = null,
@@ -184,6 +199,13 @@ interface IdeActions {
     fun setWordWrap(on: Boolean)
     /** Hide all chrome and give the file the whole screen. */
     fun toggleFullScreen()
+    /** Back to the place this jump came from (VS Code's alt-left). */
+    fun navigateBack()
+    fun navigateForward()
+    /** Monaco's find widget — the only way to search a file without a keyboard. */
+    fun findInFile()
+    /** Jump the editor view to "top" or "bottom". */
+    fun scrollEditorTo(where: String)
     fun openFile(node: FileNode)
     fun saveActiveTab()
     fun requestFileOp(kind: FileOpKind, target: FileNode?)

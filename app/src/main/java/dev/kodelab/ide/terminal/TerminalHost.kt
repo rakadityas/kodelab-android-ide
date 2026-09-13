@@ -93,8 +93,24 @@ object TerminalHost {
     fun installSandbox() {
         val svc = _service.value ?: return
         scope.launch {
-            svc.sandbox.install()
+            // Retrying after a failure part-way through: the rootfs may already
+            // be in, and what's missing is the tools on top of it.
+            if (svc.sandbox.isInstalled) svc.sandbox.installDevTools() else svc.sandbox.install()
             if (svc.sandbox.isInstalled) {
+                svc.restartSession(DEFAULT_SESSION_ID, null)
+            }
+        }
+    }
+
+    /**
+     * Add the base dev tools (curl, git, ssh, terminfo…) to a sandbox that
+     * already exists, then restart the shell so its PATH picks them up.
+     */
+    fun installDevTools() {
+        val svc = _service.value ?: return
+        scope.launch {
+            svc.sandbox.installDevTools()
+            if (svc.sandbox.devToolsReady.value) {
                 svc.restartSession(DEFAULT_SESSION_ID, null)
             }
         }

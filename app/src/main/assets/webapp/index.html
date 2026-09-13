@@ -13,13 +13,18 @@
     </div>
     <div id="monaco" class="pane" hidden></div>
     <!-- Selection affordance: a single button that appears when you highlight
-         text, and only expands into a menu when tapped. Replaces Monaco's
-         long-press context menu, which could be opened but not dismissed. -->
+         text, and only expands into a menu when tapped — so a selection never
+         covers itself with a menu you didn't ask for. A long press opens the
+         menu directly, which is how Paste is reached with nothing selected.
+         Items that need a selection are hidden when there isn't one. -->
     <button id="sel-chip" type="button" hidden>Actions</button>
     <div id="sel-menu" hidden>
-      <button type="button" data-act="findReferences">Find references</button>
-      <button type="button" data-act="goToDefinition">Go to definition</button>
-      <button type="button" data-act="copy">Copy</button>
+      <button type="button" data-act="findReferences" data-needs="selection">Find references</button>
+      <button type="button" data-act="goToDefinition" data-needs="selection">Go to definition</button>
+      <button type="button" data-act="copy" data-needs="selection">Copy</button>
+      <button type="button" data-act="cut" data-needs="selection edit">Cut</button>
+      <button type="button" data-act="paste" data-needs="edit">Paste</button>
+      <button type="button" data-act="selectAll">Select all</button>
       <button type="button" data-act="dismiss" class="dismiss">Dismiss</button>
     </div>
   </div>

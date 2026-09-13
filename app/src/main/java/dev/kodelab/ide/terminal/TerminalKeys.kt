@@ -20,6 +20,23 @@ object TerminalKeys {
     }
 
     /**
+     * An arrow key in the form the program on the other end expects. A
+     * full-screen program that has set DECCKM (`ESC[?1h` — vim, less, and the
+     * list prompts in `gh`) reads `ESC O A`, and ignores the `ESC [ A` a plain
+     * shell wants, which is why an unqualified arrow looked like it did nothing
+     * there. Modifiers always use the CSI form, as xterm does.
+     */
+    fun cursorKey(
+        final: Char,
+        shift: Boolean = false,
+        alt: Boolean = false,
+        ctrl: Boolean = false,
+        applicationMode: Boolean = false,
+    ): String =
+        if (applicationMode && modifierParam(shift, alt, ctrl) == 1) "${ESC}O$final"
+        else csi(final, shift, alt, ctrl)
+
+    /**
      * A printable key with the armed modifiers applied: shift upper-cases it,
      * ctrl turns @.._ into the matching control byte (so c becomes 0x03), and
      * alt prefixes ESC — the same thing a real terminal sends.

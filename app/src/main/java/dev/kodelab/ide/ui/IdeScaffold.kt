@@ -23,6 +23,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -67,12 +68,16 @@ import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.KeyboardDoubleArrowDown
+import androidx.compose.material.icons.filled.KeyboardDoubleArrowUp
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CloseFullscreen
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.OpenInFull
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.NoteAdd
@@ -115,8 +120,12 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -128,6 +137,7 @@ import dev.kodelab.ide.editor.EditorWebView
 import dev.kodelab.ide.editor.Markdown
 import dev.kodelab.ide.git.GitFileStatus
 import dev.kodelab.ide.terminal.SandboxInstaller
+import dev.kodelab.ide.terminal.ShellSession
 import dev.kodelab.ide.terminal.TerminalEmulator
 import dev.kodelab.ide.terminal.TerminalScheme
 import dev.kodelab.ide.terminal.TerminalSchemes
@@ -201,6 +211,11 @@ fun IdeScaffold(state: IdeUiState, actions: IdeActions, viewModel: IdeViewModel)
                         modifier = if (reading || fullTerminal || empty) Modifier.size(1.dp)
                         else Modifier.fillMaxSize(),
                         editMode = state.presets.editMode && !reading && !fullTerminal,
+                        // Tapping the code puts the file back in charge of the
+                        // screen: on a phone the panel is most of the width, and
+                        // reaching back up to the rail icon to close it is a
+                        // trip you shouldn't have to make.
+                        onTap = { if (state.sidebarVisible) actions.toggleSidebar() },
                     )
                     // Not while a restore is in flight: showing the guide and
                     // then replacing it is the flicker this avoids.
@@ -223,6 +238,13 @@ fun IdeScaffold(state: IdeUiState, actions: IdeActions, viewModel: IdeViewModel)
                             onLinkClick = actions::readerLinkClicked,
                             modifier = Modifier.fillMaxSize(),
                         )
+                    }
+                    // Following a reference has to be reversible: this is the
+                    // way back (and forward again) without a keyboard.
+                    if (!empty && !fullTerminal) {
+                        Box(Modifier.align(Alignment.BottomEnd).padding(12.dp)) {
+                            EditorFloatingNav(state, actions)
+                        }
                     }
                     // Drawn last, so the reader — which fills this box — can't
                     // cover the only way out of full screen.
@@ -351,6 +373,91 @@ private fun ActivityRail(
         RailButton(Icons.AutoMirrored.Filled.OpenInNew, false, "New window") { viewModel.requestNewWindow() }
         RailButton(Icons.Filled.Settings, false, "Settings") { onOpenSettings() }
     }
+    }
+}
+
+/**
+ * The floating cluster in the bottom corner of the editor: back, forward, and
+ * find-in-file.
+ *
+ * These are the three moves a phone has no key for. Back and forward walk the
+ * navigation history — what alt-← does on a desktop, and the thing that was
+ * missing after following a reference into another file. Find opens Monaco's
+ * own search box, which otherwise needs ctrl-F.
+ *
+ * The pair stays in place and greys out when there is nowhere to go, rather
+ * than appearing and disappearing under the thumb that is reaching for it.
+ */
+@Composable
+private fun EditorFloatingNav(state: IdeUiState, actions: IdeActions) {
+    val palette = LocalEditorPalette.current
+    Row(
+        Modifier
+            .shadow(6.dp, RoundedCornerShape(22.dp))
+            .clip(RoundedCornerShape(22.dp))
+            .background(palette.chrome.copy(alpha = 0.94f))
+            .border(1.dp, palette.border, RoundedCornerShape(22.dp))
+            .padding(horizontal = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        FloatingNavButton(
+            Icons.AutoMirrored.Filled.ArrowBack,
+            "Back",
+            enabled = state.canNavigateBack,
+            onClick = actions::navigateBack,
+        )
+        FloatingNavButton(
+            Icons.AutoMirrored.Filled.ArrowForward,
+            "Forward",
+            enabled = state.canNavigateForward,
+            onClick = actions::navigateForward,
+        )
+        Spacer(Modifier.width(1.dp).height(scaled(22.dp)).background(palette.border))
+        FloatingNavButton(
+            Icons.Filled.KeyboardDoubleArrowUp,
+            "Top of file",
+            enabled = true,
+            onClick = { actions.scrollEditorTo("top") },
+        )
+        FloatingNavButton(
+            Icons.Filled.KeyboardDoubleArrowDown,
+            "Bottom of file",
+            enabled = true,
+            onClick = { actions.scrollEditorTo("bottom") },
+        )
+        Spacer(Modifier.width(1.dp).height(scaled(22.dp)).background(palette.border))
+        FloatingNavButton(
+            Icons.Filled.Search,
+            "Find in this file",
+            enabled = true,
+            onClick = actions::findInFile,
+        )
+    }
+}
+
+@Composable
+private fun FloatingNavButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val palette = LocalEditorPalette.current
+    WithTooltip(label) {
+        Box(
+            Modifier
+                .size(scaled(40.dp))
+                .clip(CircleShape)
+                .clickable(enabled = enabled, onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                icon,
+                contentDescription = label,
+                tint = if (enabled) palette.textPrimary else palette.textMuted.copy(alpha = 0.4f),
+                modifier = Modifier.size(scaled(20.dp)),
+            )
+        }
     }
 }
 
@@ -604,12 +711,14 @@ private fun ExtensionsPanel(state: IdeUiState) {
         return
     }
     if (state.extensions.isEmpty()) {
+        // Wrapped by the layout, not by hand: the hand-placed breaks were cut
+        // for one panel width and read as ragged everywhere else.
         PanelPlaceholder(
             "No extensions in this workspace.\n\n" +
-                "Drop declarative add-ons under\n.kodelab/extensions/<id>/ with a\n" +
-                "kodelab-extension.json manifest (themes,\nsnippets, grammars, LSP recipes).\n\n" +
-                "Each is license-audited (SPDX); only permissively\nlicensed ones activate. Kodelab never uses the\n" +
-                "Microsoft Marketplace.",
+                "Drop declarative add-ons under .kodelab/extensions/<id>/ with a " +
+                "kodelab-extension.json manifest (themes, snippets, grammars, LSP recipes).\n\n" +
+                "Each is license-audited (SPDX); only permissively licensed ones " +
+                "activate. Kodelab never uses the Microsoft Marketplace.",
         )
         return
     }
@@ -1142,10 +1251,24 @@ private fun TerminalOutput(
     val screen by (session?.screen
         ?: remember { kotlinx.coroutines.flow.MutableStateFlow(emptyList<List<TerminalEmulator.Span>>()) })
         .collectAsState()
+    val cursor by (session?.cursor
+        ?: remember { kotlinx.coroutines.flow.MutableStateFlow(ShellSession.Cursor(0, 0, false)) })
+        .collectAsState()
     val scroll = rememberScrollState()
     LaunchedEffect(screen) { scroll.scrollTo(scroll.maxValue) }
 
-    Column(
+    val measurer = rememberTextMeasurer()
+    val textStyle = remember(fontSize, lineHeight, scheme) {
+        TextStyle(
+            fontFamily = FontFamily.Monospace,
+            fontSize = fontSize,
+            lineHeight = lineHeight,
+        )
+    }
+    // A terminal has to tell the program its real size (TIOCSWINSZ), or every
+    // full-screen program lays itself out for someone else's window. Measure
+    // the monospace cell once, then hand the pty the rows/cols that fit.
+    BoxWithConstraints(
         Modifier
             .fillMaxSize()
             .background(scheme.background)
@@ -1153,28 +1276,54 @@ private fun TerminalOutput(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = onTap,
-            )
-            .verticalScroll(scroll)
-            .horizontalScroll(rememberScrollState())
-            .padding(8.dp),
+            ),
     ) {
-        if (screen.isEmpty()) {
-            Text(
-                hint,
-                color = scheme.foreground.copy(alpha = 0.6f),
-                fontFamily = FontFamily.Monospace,
-                fontSize = fontSize,
-            )
+        val density = LocalDensity.current
+        val cell = remember(textStyle) { measurer.measure("M".repeat(20), textStyle).size }
+        val charWidth = (cell.width / 20f).coerceAtLeast(1f)
+        val rowHeight = cell.height.toFloat().coerceAtLeast(1f)
+        val cols = with(density) {
+            ((maxWidth - PADDING * 2).toPx() / charWidth).toInt().coerceIn(20, 500)
         }
-        Text(
-            text = remember(screen, scheme) { screenToAnnotated(screen, scheme) },
-            fontFamily = FontFamily.Monospace,
-            fontSize = fontSize,
-            lineHeight = lineHeight,
-            softWrap = false,
-        )
+        val rows = with(density) {
+            ((maxHeight - PADDING * 2).toPx() / rowHeight).toInt().coerceIn(4, 200)
+        }
+        LaunchedEffect(session, rows, cols) { session?.resize(rows, cols) }
+
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(scroll)
+                .horizontalScroll(rememberScrollState())
+                .padding(PADDING),
+        ) {
+            if (screen.isEmpty()) {
+                Text(
+                    hint,
+                    color = scheme.foreground.copy(alpha = 0.6f),
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = fontSize,
+                )
+            }
+            // SelectionContainer is what gives the output a long-press
+            // selection and the system's Copy button — a terminal you can't
+            // quote from is half a terminal. Links inside it stay tappable.
+            SelectionContainer {
+                Text(
+                    text = remember(screen, scheme, cursor) {
+                        screenToAnnotated(screen, scheme, cursor)
+                    },
+                    style = textStyle,
+                    color = scheme.foreground,
+                    softWrap = false,
+                )
+            }
+        }
     }
 }
+
+/** Terminal body inset — also what the rows/cols measurement subtracts. */
+private val PADDING = 8.dp
 
 /** Chrome-style tabs for the shared terminal sessions, with a "+" to spawn one. */
 @Composable
@@ -1341,6 +1490,9 @@ private fun TerminalPanel(state: IdeUiState, actions: IdeActions, modifier: Modi
     val sandboxStatus by (service?.sandbox?.status
         ?: remember { kotlinx.coroutines.flow.MutableStateFlow<SandboxInstaller.Status>(SandboxInstaller.Status.NotInstalled) })
         .collectAsState()
+    val devToolsReady by (service?.sandbox?.devToolsReady
+        ?: remember { kotlinx.coroutines.flow.MutableStateFlow(true) })
+        .collectAsState()
 
     // Only a path the shell can actually use; an unreachable folder falls back
     // to the sandbox home rather than a directory that doesn't resolve.
@@ -1369,6 +1521,13 @@ private fun TerminalPanel(state: IdeUiState, actions: IdeActions, modifier: Modi
     val alive by (session?.alive
         ?: remember { kotlinx.coroutines.flow.MutableStateFlow(true) })
         .collectAsState()
+    // The sandbox has no browser of its own: when something in there asks to
+    // open a URL (gh auth login, npm login), it arrives here and goes to the
+    // phone's browser — nothing to copy out by hand.
+    val uriHandler = LocalUriHandler.current
+    LaunchedEffect(session) {
+        session?.openUrl?.collect { url -> runCatching { uriHandler.openUri(url) } }
+    }
     // Which sessions have exited, so their tabs can say so.
     val deadIds by produceState(initialValue = emptySet<String>(), sessionIds, service) {
         val live = sessionIds.mapNotNull { id -> TerminalHost.session(id)?.let { id to it.alive } }
@@ -1383,6 +1542,7 @@ private fun TerminalPanel(state: IdeUiState, actions: IdeActions, modifier: Modi
 
     var input by remember { mutableStateOf("") }
     val inputFocus = remember { FocusRequester() }
+    val clipboard = LocalClipboardManager.current
 
     val editMode = state.presets.editMode
     // The prompt is always typeable — reading mode only stops a tap on the
@@ -1434,11 +1594,27 @@ private fun TerminalPanel(state: IdeUiState, actions: IdeActions, modifier: Modi
                         .clickable { TerminalHost.installSandbox() }
                         .padding(end = 8.dp),
                 )
-                is SandboxInstaller.Status.Installed -> Text(
-                    "alpine",
-                    color = palette.good, fontSize = 11.sp,
-                    modifier = Modifier.padding(end = 8.dp),
-                )
+                is SandboxInstaller.Status.Installed -> if (devToolsReady) {
+                    Text(
+                        "alpine",
+                        color = palette.good, fontSize = 11.sp,
+                        modifier = Modifier.padding(end = 8.dp),
+                    )
+                } else {
+                    // A sandbox from an earlier build has the rootfs but none of
+                    // the base tools — offer them rather than leaving `curl:
+                    // not found` as the first thing that happens.
+                    Text(
+                        "Add dev tools",
+                        color = palette.accent,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .clickable { TerminalHost.installDevTools() }
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                }
             }
         }
         val scope = rememberCoroutineScope()
@@ -1526,7 +1702,14 @@ private fun TerminalPanel(state: IdeUiState, actions: IdeActions, modifier: Modi
             shift = false
         }
 
-        fun sendCsi(final: Char) = send(TerminalKeys.csi(final, shift, alt, ctrl))
+        // Arrows go out in whichever form the program on the other end is
+        // listening for (see TerminalKeys.cursorKey).
+        fun sendCsi(final: Char) = send(
+            TerminalKeys.cursorKey(
+                final, shift, alt, ctrl,
+                applicationMode = session?.applicationCursorKeys == true,
+            ),
+        )
 
         fun sendKey(ch: String) = send(TerminalKeys.key(ch, shift, alt, ctrl))
 
@@ -1551,6 +1734,13 @@ private fun TerminalPanel(state: IdeUiState, actions: IdeActions, modifier: Modi
                     AccessoryKey("/") { sendKey("/") }
                     AccessoryKey("-") { sendKey("-") }
                     AccessoryKey("^C") { session?.sendInterrupt(); ctrl = false; alt = false; shift = false }
+                    // Long-press selects and copies from the output above; this
+                    // is the other half — the clipboard back into the shell.
+                    AccessoryKey("paste") {
+                        val text = clipboard.getText()?.text
+                        if (!text.isNullOrEmpty()) session?.paste(text)
+                        ctrl = false; alt = false; shift = false
+                    }
                 }
             }
             Spacer(Modifier.width(8.dp))
@@ -1607,19 +1797,30 @@ private fun TerminalPanel(state: IdeUiState, actions: IdeActions, modifier: Modi
     }
 }
 
-/** Standard 16-colour ANSI palette (indices 0..15), tuned for legibility. */
 /**
- * Paint the emulator's spans with [scheme]. Unlike the previous pass this draws
- * backgrounds too, and honours reverse video by swapping the pair — a prompt
- * with coloured segments, a `grep` hit or a `git diff` block all rely on it, and
- * dropping them is what made the panel look flat.
+ * Paint the emulator's spans with [scheme]: colours, bold/italic/underline and
+ * reverse video (drawn by swapping the pair) — a coloured prompt, a `grep` hit
+ * or a `git diff` block all rely on them. The cursor cell, when the program
+ * has it visible, is drawn as a block the same way.
  */
 private fun screenToAnnotated(
     screen: List<List<TerminalEmulator.Span>>,
     scheme: TerminalScheme,
+    cursor: ShellSession.Cursor? = null,
 ): androidx.compose.ui.text.AnnotatedString = androidx.compose.ui.text.buildAnnotatedString {
+    var cursorOffset = -1
+    // Ranges of printed URLs, collected as the lines go by and turned into
+    // links at the end: a build error or an auth prompt that prints a link
+    // should be one tap away from the browser, not a copy-out-by-hand job.
+    val links = ArrayList<Triple<Int, Int, String>>()
     screen.forEachIndexed { i, line ->
         if (i > 0) append('\n')
+        val onThisLine = cursor != null && cursor.visible && cursor.row == i
+        if (onThisLine) cursorOffset = length + cursor!!.col
+        val lineStart = length
+        URL_PATTERN.findAll(line.joinToString("") { it.text }).forEach { m ->
+            links += Triple(lineStart + m.range.first, lineStart + m.range.last + 1, m.value)
+        }
         line.forEach { span ->
             val st = span.style
             // Bold with one of the 8 base colours means "bright" on a real
@@ -1646,8 +1847,38 @@ private fun screenToAnnotated(
             )
             append(span.text)
         }
+        // The cursor commonly sits one past the end of the line (at the prompt),
+        // where there is no cell yet — pad out to it so the block can be drawn.
+        if (onThisLine && cursorOffset >= length) append(" ".repeat(cursorOffset - length + 1))
+    }
+    links.forEach { (start, end, url) ->
+        if (start >= length || end > length) return@forEach
+        addLink(
+            androidx.compose.ui.text.LinkAnnotation.Url(
+                url,
+                androidx.compose.ui.text.TextLinkStyles(
+                    style = androidx.compose.ui.text.SpanStyle(
+                        color = scheme.ansi[12],
+                        textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
+                    ),
+                ),
+            ),
+            start, end,
+        )
+    }
+    if (cursorOffset in 0 until length) {
+        addStyle(
+            androidx.compose.ui.text.SpanStyle(
+                color = scheme.background,
+                background = scheme.foreground,
+            ),
+            cursorOffset, cursorOffset + 1,
+        )
     }
 }
+
+/** http(s) URLs in terminal output, stopping before trailing punctuation. */
+private val URL_PATTERN = Regex("""https?://[^\s"'<>`\\]*[^\s"'<>`\\.,;:!?)\]}]""")
 
 // ---------- settings ----------
 
@@ -1726,7 +1957,7 @@ private fun SettingsDialog(
 
                 SettingsSection("Selection actions")
                 Text(
-                    "Highlight text in the editor and a small Actions button appears;\ntap it for find references, go to definition and copy.",
+                    "Highlight text in the editor and a small Actions button appears;\ntap it for find references, go to definition, copy and cut.\nLong-press in the editor opens the same menu with nothing\nselected, which is where Paste lives.",
                     color = palette.textMuted, fontSize = 11.sp, lineHeight = 15.sp,
                 )
                 StepperRow("Appears after (ms)", p.selectionDelayMs, step = 50) {

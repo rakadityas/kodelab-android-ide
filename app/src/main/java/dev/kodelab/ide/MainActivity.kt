@@ -3,6 +3,8 @@ package dev.kodelab.ide
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import android.content.ClipData
+import android.content.ClipboardManager
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -57,6 +59,20 @@ class MainActivity : ComponentActivity() {
         // opened from inside the app (REQ 7) deliberately starts empty.
         if (savedInstanceState == null && !intent.getBooleanExtra(EXTRA_FRESH_WINDOW, false)) {
             viewModel.restoreSession()
+        }
+
+        // The editor's copy/paste run through the system clipboard service,
+        // which lives here: a WebView's own clipboard access is unreliable and
+        // wouldn't be the clipboard the rest of the phone shares.
+        val clipboard = getSystemService(ClipboardManager::class.java)
+        viewModel.clipboard = { text ->
+            runCatching { clipboard?.setPrimaryClip(ClipData.newPlainText("Kodelab", text)) }
+        }
+        viewModel.pasteRequest = {
+            val text = clipboard?.primaryClip
+                ?.takeIf { it.itemCount > 0 }
+                ?.getItemAt(0)?.coerceToText(this)?.toString()
+            viewModel.pasteIntoEditor(text ?: "")
         }
 
         lifecycleScope.launch {

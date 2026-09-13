@@ -66,6 +66,21 @@ class IdeViewModel(
      *  a tab's waiters are served by the next `buffer.save` reply for that tab. */
     private val pendingText = mutableMapOf<String, MutableList<(String) -> Unit>>()
 
+    // ---------- navigation history ----------
+    //
+    // Following a reference is only half a move: you have to get back. This is
+    // the same model a browser (or VS Code's alt-←) uses — a list of visited
+    // places with a cursor into it, where a new jump truncates whatever was
+    // ahead. Recorded here rather than in Monaco because a jump usually lands
+    // in a different file, and Monaco only knows about one model at a time.
+
+    /** The last cursor line reported per tab, so "where I left" is the real line. */
+    private val cursorLines = mutableMapOf<String, Int>()
+    private val history = mutableListOf<NavLocation>()
+    private var historyIndex = -1
+    /** Set while back/forward is doing the moving, so it doesn't record itself. */
+    private var navigating = false
+
     init {
         viewModelScope.launch {
             val user = settings.settings.first()
@@ -333,10 +348,15 @@ class IdeViewModel(
 
     /** The body of [openDocument], awaitable so a session restore keeps tab order. */
     private suspend fun openDocumentNow(uri: Uri, name: String, revealLine: Int? = null): Boolean {
+        recordCurrentLocation()
         val existing = _state.value.tabs.firstOrNull { it.uri == uri }
         if (existing != null) {
             selectTab(existing.id)
-            revealLine?.let { editor.revealLine(existing.id, it) }
+            revealLine?.let {
+                editor.revealLine(existing.id, it)
+                cursorLines[existing.id] = it
+                rememberLocation(locationOf(existing.id, it))
+            }
             return true
         }
         val text = repo.readText(uri)
@@ -355,15 +375,111 @@ class IdeViewModel(
         editor.openBuffer(tab.id, text, lang)
         editor.showBuffer(tab.id)
         revealLine?.let { editor.revealLine(tab.id, it) }
+        cursorLines[tab.id] = revealLine ?: 1
+        rememberLocation(locationOf(tab.id, revealLine ?: 1))
         persistSession()
         return true
     }
 
     override fun selectTab(id: String) {
+        if (id != _state.value.activeTabId) recordCurrentLocation()
         _state.update { it.copy(activeTabId = id) }
         closeReaderIfNotActive(id)
         editor.showBuffer(id)
+        rememberLocation(locationOf(id))
         persistSession()
+    }
+
+    // ---------- navigation history ----------
+
+    private fun locationOf(tabId: String?, line: Int? = null): NavLocation? {
+        val tab = _state.value.tabs.firstOrNull { it.id == tabId } ?: return null
+        return NavLocation(tab.id, tab.uri, tab.title, line ?: cursorLines[tab.id] ?: 1)
+    }
+
+    /** Push where we are now, before a jump moves us somewhere else. */
+    private fun recordCurrentLocation() {
+        if (navigating) return
+        rememberLocation(locationOf(_state.value.activeTabId))
+    }
+
+    /**
+     * Append [loc] as the newest entry. Anything ahead of the cursor is dropped
+     * (a new jump from a rewound history replaces the old forward path), and a
+     * landing close to the previous one just updates it rather than filling the
+     * list with near-duplicates.
+     */
+    private fun rememberLocation(loc: NavLocation?) {
+        if (navigating || loc == null) return
+        val current = history.getOrNull(historyIndex)
+        if (current != null && current.tabId == loc.tabId &&
+            kotlin.math.abs(current.line - loc.line) < NEAR_LINES
+        ) {
+            history[historyIndex] = loc
+            return
+        }
+        while (history.size > historyIndex + 1) history.removeAt(history.size - 1)
+        history.add(loc)
+        while (history.size > MAX_HISTORY) history.removeAt(0)
+        historyIndex = history.size - 1
+        publishHistory()
+    }
+
+    private fun publishHistory() {
+        _state.update {
+            it.copy(
+                canNavigateBack = historyIndex > 0,
+                canNavigateForward = historyIndex in 0 until history.size - 1,
+            )
+        }
+    }
+
+    override fun navigateBack() = navigateTo(historyIndex - 1)
+
+    override fun navigateForward() = navigateTo(historyIndex + 1)
+
+    private fun navigateTo(index: Int) {
+        val target = history.getOrNull(index) ?: return
+        historyIndex = index
+        publishHistory()
+        navigating = true
+        viewModelScope.launch {
+            try {
+                val open = _state.value.tabs.any { it.id == target.tabId }
+                if (open) {
+                    _state.update { it.copy(activeTabId = target.tabId, statusText = target.title) }
+                    closeReaderIfNotActive(target.tabId)
+                    editor.showBuffer(target.tabId)
+                    editor.revealLine(target.tabId, target.line)
+                } else if (target.uri != null) {
+                    // The tab was closed since; reopen it at the same line.
+                    val reopened = openDocumentNow(target.uri, target.title, target.line)
+                    if (reopened) {
+                        _state.value.tabs.firstOrNull { it.uri == target.uri }?.let { tab ->
+                            history[index] = target.copy(tabId = tab.id)
+                        }
+                    }
+                }
+            } finally {
+                navigating = false
+            }
+        }
+    }
+
+    override fun findInFile() = sendEditorCommand("actions.find")
+
+    override fun scrollEditorTo(where: String) = editor.scrollTo(where)
+
+    /**
+     * Clipboard access, wired by the Activity (which owns the system service).
+     * [clipboard] puts text on it; [pasteRequest] is the editor asking for what
+     * is on it, answered with [pasteIntoEditor].
+     */
+    var clipboard: ((String) -> Unit)? = null
+    var pasteRequest: (() -> Unit)? = null
+
+    fun pasteIntoEditor(text: String) {
+        if (text.isNotEmpty()) editor.insertText(text)
     }
 
     override fun closeTab(id: String) {
@@ -384,6 +500,12 @@ class IdeViewModel(
     private fun reallyClose(id: String) {
         editor.closeBuffer(id)
         pendingText.remove(id)
+        cursorLines.remove(id)
+        // An entry for a closed file can be reopened from its uri; one for a
+        // closed untitled buffer has nothing left to go back to.
+        history.removeAll { it.tabId == id && it.uri == null }
+        historyIndex = historyIndex.coerceAtMost(history.size - 1)
+        publishHistory()
         _state.update { s ->
             val remaining = s.tabs.filterNot { it.id == id }
             s.copy(
@@ -1124,6 +1246,16 @@ class IdeViewModel(
             // every file that's on disk.
             "editor.findReferences" -> symbolSearch(p.optString("text"), definitionsOnly = false)
             "editor.goToDefinition" -> symbolSearch(p.optString("text"), definitionsOnly = true)
+            // The editor has no access to the phone's clipboard worth relying
+            // on, so both directions go through here.
+            "editor.copy" -> clipboard?.invoke(p.optString("text"))
+            "editor.requestPaste" -> pasteRequest?.invoke()
+            // Where the cursor is now, so a jump away from here can be
+            // recorded at the line you actually left.
+            "editor.position" -> {
+                val tabId = p.optString("tabId")
+                if (tabId.isNotEmpty()) cursorLines[tabId] = p.optInt("line", 1)
+            }
             "buffer.save" -> {
                 val tabId = p.optString("tabId")
                 val text = p.optString("text")
@@ -1148,6 +1280,10 @@ class IdeViewModel(
     }
 
     companion object {
-
+        /** How many places back/forward can reach. */
+        private const val MAX_HISTORY = 50
+        /** Landings within this many lines of the last one amend it instead of
+         *  adding an entry — scrolling around a function isn't navigation. */
+        private const val NEAR_LINES = 8
     }
 }

@@ -44,6 +44,19 @@ class TerminalKeysTest {
     }
 
     @Test
+    fun `arrows switch to SS3 while a program has application mode on`() {
+        // vim, less and the list prompts in gh set DECCKM and then read ESC O A;
+        // they ignore the ESC [ A a plain shell wants.
+        assertEquals(esc + "OA", TerminalKeys.cursorKey('A', applicationMode = true))
+        assertEquals(esc + "[A", TerminalKeys.cursorKey('A', applicationMode = false))
+    }
+
+    @Test
+    fun `a modified arrow stays CSI even in application mode`() {
+        assertEquals(esc + "[1;5A", TerminalKeys.cursorKey('A', ctrl = true, applicationMode = true))
+    }
+
+    @Test
     fun `the modifier parameter matches the xterm table`() {
         assertEquals(1, TerminalKeys.modifierParam(false, false, false))
         assertEquals(2, TerminalKeys.modifierParam(shift = true, alt = false, ctrl = false))

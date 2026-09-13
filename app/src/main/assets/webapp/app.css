@@ -7,7 +7,10 @@
   --border: #2b373d;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
-html, body, #root { height: 100%; width: 100%; overflow: hidden; }
+/* overscroll-behavior: none stops the WebView from turning a drag that runs
+   past the end of the file into a page-level bounce, which lands back a few
+   pixels off and looks like the editor scrolling itself. */
+html, body, #root { height: 100%; width: 100%; overflow: hidden; overscroll-behavior: none; }
 body {
   background: var(--surface);
   color: var(--textPrimary);
@@ -68,4 +71,4 @@ body {
 
 #sel-menu button:active { background: var(--panel, #2d333b); }
 #sel-menu button.dismiss { color: var(--text-muted, #8b949e); }
-#sel-chip[hidden], #sel-menu[hidden] { display: none !important; }
+#sel-chip[hidden], #sel-menu[hidden], #sel-menu button[hidden] { display: none !important; }

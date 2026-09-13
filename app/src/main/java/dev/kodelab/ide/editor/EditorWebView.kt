@@ -3,9 +3,13 @@ package dev.kodelab.ide.editor
 import android.annotation.SuppressLint
 import android.os.Handler
 import android.os.Looper
+import android.view.MotionEvent
+import android.view.View
+import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.webkit.WebView
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
@@ -16,8 +20,44 @@ import dev.kodelab.ide.theme.EditorPalette
 import dev.kodelab.ide.workspace.WorkspacePresets
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlin.math.hypot
 
 private const val APP_ORIGIN = "https://appassets.androidplatform.net"
+
+/**
+ * Focus the WebView on a *tap*, never mid-scroll.
+ *
+ * Requesting focus while a finger is dragging makes Monaco focus its hidden
+ * textarea, and the browser then scrolls that textarea into view — the editor
+ * jumping back up by a few pixels part-way through a scroll. Only a touch that
+ * ends without travelling further than the system's touch slop counts as a tap.
+ */
+private class TapToFocus(
+    private val enabled: () -> Boolean,
+    private val onTap: () -> Unit,
+) : View.OnTouchListener {
+    private var downX = 0f
+    private var downY = 0f
+    private var slop = -1
+
+    @SuppressLint("ClickableViewAccessibility")
+    override fun onTouch(v: View, event: MotionEvent): Boolean {
+        if (slop < 0) slop = ViewConfiguration.get(v.context).scaledTouchSlop
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> { downX = event.x; downY = event.y }
+            MotionEvent.ACTION_UP -> {
+                val moved = hypot(event.x - downX, event.y - downY)
+                if (moved <= slop) {
+                    // A tap on the code means "I'm working here now" — the side
+                    // panel gets out of the way whether or not we take focus.
+                    onTap()
+                    if (enabled()) v.requestFocus()
+                }
+            }
+        }
+        return false // never consume: Monaco still gets the gesture
+    }
+}
 
 /** Thin controller so the rest of the app can push messages into the editor. */
 class EditorController {
@@ -101,6 +141,12 @@ class EditorController {
         send("editor.requestSymbol", JSONObject().put("reply", reply))
 
     fun markSaved(tabId: String) = send("buffer.markSaved", JSONObject().put("tabId", tabId))
+
+    /** Drop [text] in at the cursor, replacing the selection (the paste path). */
+    fun insertText(text: String) = send("input.type", JSONObject().put("text", text))
+
+    /** Jump the view to the start or end of the file. */
+    fun scrollTo(where: String) = send("buffer.scrollTo", JSONObject().put("where", where))
 }
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -111,8 +157,16 @@ fun EditorWebView(
     onEvent: (method: String, params: String) -> Unit,
     modifier: Modifier = Modifier,
     editMode: Boolean = true,
+    /** A tap on the editor body (not a scroll) — used to dismiss the sidebar. */
+    onTap: () -> Unit = {},
 ) {
     val bridge = remember { EditorBridge(onEvent) }
+    // The factory runs once, so the touch listener reads the mode through a
+    // holder that recomposition keeps current rather than capturing it.
+    val editModeRef = remember { mutableStateOf(editMode) }
+    editModeRef.value = editMode
+    val onTapRef = remember { mutableStateOf(onTap) }
+    onTapRef.value = onTap
 
     AndroidView(
         modifier = modifier,
@@ -129,9 +183,9 @@ fun EditorWebView(
                 // Monaco's hidden textarea when the WebView sits inside Compose.
                 isFocusable = true
                 isFocusableInTouchMode = true
-                // Only pull view focus (which raises the keyboard) in edit mode.
-                // In reading mode Monaco is read-only and we leave focus alone.
-                setOnTouchListener { v, _ -> if (editMode) v.requestFocus(); false }
+                // Only pull view focus (which raises the keyboard) in edit
+                // mode, and only on a tap — see TapToFocus.
+                setOnTouchListener(TapToFocus({ editModeRef.value }, { onTapRef.value() }))
                 settings.apply {
                     javaScriptEnabled = true
                     domStorageEnabled = true
@@ -170,7 +224,6 @@ fun EditorWebView(
         update = {
             controller.webView = it
             controller.applyTheme(palette) // recomposes on theme change — keep Monaco in sync
-            it.setOnTouchListener { v, _ -> if (editMode) v.requestFocus(); false }
             if (!editMode) {
                 it.clearFocus()
                 val imm = it.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)

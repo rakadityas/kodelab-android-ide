@@ -18,6 +18,7 @@ import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
+import java.util.concurrent.TimeUnit
 
 /**
  * Installs the Linux sandbox (REQ 5 "install anything"): a proot binary and an
@@ -55,8 +56,17 @@ class SandboxInstaller(private val context: Context) {
     val libDir: File get() = File(sandboxDir, "lib")
     val tmpDir: File get() = File(sandboxDir, "tmp")
     private val marker: File get() = File(sandboxDir, ".installed")
+    private val devToolsMarker: File get() = File(sandboxDir, ".devtools")
 
     val isInstalled: Boolean get() = marker.exists()
+
+    /**
+     * Whether the base developer tools (below) are in. Exposed so the terminal
+     * header can offer them for a sandbox installed by an earlier build, which
+     * has the rootfs but none of them.
+     */
+    private val _devToolsReady = MutableStateFlow(devToolsMarker.exists())
+    val devToolsReady: StateFlow<Boolean> = _devToolsReady
 
     /**
      * Prefix to run an app-private ELF (proot) with. When the app targets API 29+
@@ -134,6 +144,9 @@ class SandboxInstaller(private val context: Context) {
             ensureShellProfile()
 
             marker.writeText("ok")
+            // Best-effort: a flaky network here shouldn't strand the user
+            // without a shell at all, so a failure doesn't fail install().
+            runCatching { installDevToolsNow() }
             _status.value = Status.Installed
         }.onFailure { e ->
             _status.value = Status.Failed(e.message ?: e.javaClass.simpleName)
@@ -167,9 +180,135 @@ class SandboxInstaller(private val context: Context) {
             val dir = File(rootfsDir, "etc/profile.d").apply { mkdirs() }
             File(dir, "kodelab-colour.sh").writeText(SHELL_PROFILE)
         }
+        ensureBrowserBridge()
+    }
+
+    /**
+     * Give the guest a browser.
+     *
+     * There is no graphical anything inside the sandbox, so `gh auth login`,
+     * `npm login` and friends can't open the page they need you to visit — they
+     * fall back to printing a URL for you to copy out by hand. The shims below
+     * stand in for the Linux desktop's `xdg-open`: they print a private escape
+     * sequence, the emulator recognises it (TerminalEmulator.OSC_OPEN_URL) and
+     * the app opens the URL in the phone's browser. $BROWSER (set in
+     * ShellSession) is what Go's browser package — and so `gh` — checks first.
+     *
+     * Rewritten on every session start, so a sandbox from an earlier build
+     * gets it without a reinstall.
+     */
+    private fun ensureBrowserBridge() {
+        runCatching {
+            val bin = File(rootfsDir, "usr/local/bin").apply { mkdirs() }
+            listOf("xdg-open", "www-browser", "sensible-browser", "open").forEach { name ->
+                val f = File(bin, name)
+                f.writeText(BROWSER_SHIM)
+                Os.chmod(f.path, 0b111_101_101) // 0755
+            }
+        }
+    }
+
+    /**
+     * The baseline a bare Alpine is missing before it can be worked in at all.
+     * Deliberately *only* the baseline: languages and tools (gh, node, claude,
+     * …) are the user's call, made with `apk add`, not decided here.
+     *
+     *  - ca-certificates: without a CA bundle every HTTPS request fails
+     *    certificate verification, which is what stopped `gh auth login` over
+     *    https and left ssh as the only way to reach GitHub,
+     *  - ncurses: brings the terminfo database. TERM is xterm-256color, and on
+     *    a bare Alpine no such terminal is *described* anywhere, so every
+     *    curses program (less, vim, htop, and Go TUIs that read terminfo)
+     *    either refuses to start or draws into the void,
+     *  - the rest is what you reach for on the first day: curl, git, ssh,
+     *    bash, a pager and an editor.
+     */
+    private val devToolPackages = listOf(
+        "ca-certificates", "ncurses", "curl", "wget", "git", "openssh-client",
+        "openssl", "bash", "bash-completion", "less", "nano", "tar", "grep", "findutils",
+    )
+
+    /**
+     * Add the base tools to a sandbox that already exists (one installed by an
+     * earlier build has the rootfs but none of them).
+     */
+    suspend fun installDevTools() = withContext(Dispatchers.IO) {
+        if (!isInstalled || _devToolsReady.value) return@withContext
+        runCatching { installDevToolsNow() }
+            .onFailure { _status.value = Status.Failed(it.message ?: "dev tools failed") }
+            .onSuccess { _status.value = Status.Installed }
+        Unit
+    }
+
+    private fun installDevToolsNow() {
+        step("updating package index…")
+        runInGuest(listOf("/sbin/apk", "update"))
+        step("installing base dev tools (curl, git, ssh, terminfo)…")
+        val (code, out) = runInGuest(
+            listOf("/sbin/apk", "add", "--no-cache") + devToolPackages,
+            timeoutMs = 300_000,
+        )
+        check(code == 0) { "apk add failed: ${out.takeLast(200)}" }
+        // Certificates are only trusted once the bundle is generated from them.
+        runInGuest(listOf("/usr/sbin/update-ca-certificates"))
+        devToolsMarker.writeText("ok")
+        _devToolsReady.value = true
     }
 
     private fun step(s: String) { _status.value = Status.Installing(s) }
+
+    /**
+     * Run a one-shot guest command directly (not via [SandboxShell], which
+     * requires [isInstalled] — not yet true while [install] is still running).
+     */
+    private fun runInGuest(argv: List<String>, timeoutMs: Long = 120_000): Pair<Int, String> {
+        val command = buildList {
+            addAll(execPrefix)
+            add(prootBin.path)
+            add("--link2symlink")
+            add("-0")
+            add("-r"); add(rootfsDir.path)
+            add("-b"); add("/dev")
+            add("-b"); add("/proc")
+            add("-b"); add("/sys")
+            add("-w"); add("/root")
+            add("/usr/bin/env"); add("-i")
+            add("HOME=/root")
+            add("TERM=dumb")
+            add("LANG=C.UTF-8")
+            add("PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+            addAll(argv)
+        }
+        val pb = ProcessBuilder(command).directory(sandboxDir).redirectErrorStream(true)
+        pb.environment().apply {
+            clear()
+            put("LD_LIBRARY_PATH", libDir.path)
+            put("PROOT_TMP_DIR", tmpDir.path)
+            put("PROOT_LOADER", prootLoader.path)
+            put("PROOT_NO_SECCOMP", "1")
+            put("PATH", "/system/bin:/system/xbin")
+        }
+        val proc = pb.start()
+        // Drain on another thread: reading to EOF on this one would outlast the
+        // timeout below, so a wedged apk would hang the install for good.
+        val out = StringBuilder()
+        val drain = Thread {
+            runCatching {
+                proc.inputStream.reader().useLines { lines ->
+                    lines.forEach { synchronized(out) { out.append(it).append('\n') } }
+                }
+            }
+        }
+        drain.start()
+        val finished = proc.waitFor(timeoutMs, TimeUnit.MILLISECONDS)
+        if (!finished) {
+            proc.destroyForcibly()
+            drain.join(500)
+            return -1 to "timed out"
+        }
+        drain.join(1_000)
+        return proc.exitValue() to synchronized(out) { out.toString() }
+    }
 
     // --- download helpers ---
 
@@ -324,6 +463,29 @@ class SandboxInstaller(private val context: Context) {
 
         /** The profile text, exposed so a unit test can check its escapes. */
         fun shellProfileForTest(): String = SHELL_PROFILE
+
+        /** The xdg-open stand-in, exposed so a unit test can check its escapes. */
+        fun browserShimForTest(): String = BROWSER_SHIM
+
+        /**
+         * Print the app's "open this URL" sequence and exit. `printf` is a
+         * busybox builtin, so this works on a rootfs with nothing installed.
+         */
+        private val BROWSER_SHIM = """
+            #!/bin/sh
+            # Kodelab: the sandbox has no browser, so hand the URL to the app,
+            # which opens it on the phone. Installed as xdg-open (and the other
+            # names programs look for) by SandboxInstaller.ensureBrowserBridge.
+            [ -z "${'$'}1" ] && { echo "usage: ${'$'}(basename "${'$'}0") <url>" >&2; exit 1; }
+            # Straight to the terminal when there is one: a caller that pipes our
+            # stdout (gh does, sometimes) would otherwise swallow the sequence.
+            if [ -w /dev/tty ]; then
+              printf '\033]${TerminalEmulator.OSC_OPEN_URL};open=%s\007' "${'$'}1" > /dev/tty
+            else
+              printf '\033]${TerminalEmulator.OSC_OPEN_URL};open=%s\007' "${'$'}1"
+            fi
+            echo "Opening ${'$'}1 on the phone…"
+        """.trimIndent() + "\n"
 
         private val SHELL_PROFILE = """
             # Colour defaults for the Kodelab terminal. Regenerated by the app on

@@ -17,6 +17,9 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
+import java.nio.ByteBuffer
+import java.nio.CharBuffer
+import java.nio.charset.CodingErrorAction
 
 /**
  * A single shell session on a real pseudo-terminal (our JNI shim over bionic
@@ -37,11 +40,37 @@ class ShellSession(
     private val _output = MutableSharedFlow<String>(extraBufferCapacity = 256)
     val output: SharedFlow<String> = _output.asSharedFlow()
 
-    private val emulator = TerminalEmulator()
+    // Terminal queries (cursor position, device attributes) are answered
+    // straight back to the pty: a prompt library that asks and gets no reply
+    // blocks forever, which is what froze `gh auth login` mid-question.
+    private val emulator = TerminalEmulator(
+        onReply = { reply -> write(reply) },
+        onOpenUrl = { url -> scope.launch { _openUrl.emit(url) } },
+    )
+
+    /**
+     * URLs the guest asked the phone to open — `gh auth login` and friends going
+     * through the sandbox's `xdg-open` shim. Collected by the terminal panel,
+     * which hands them to the browser.
+     */
+    private val _openUrl = MutableSharedFlow<String>(extraBufferCapacity = 8)
+    val openUrl: SharedFlow<String> = _openUrl.asSharedFlow()
 
     /** Styled screen for the UI — one list of spans per line. */
     private val _screen = MutableStateFlow<List<List<TerminalEmulator.Span>>>(emptyList())
     val screen: StateFlow<List<List<TerminalEmulator.Span>>> = _screen.asStateFlow()
+
+    /** Where the cursor is in [screen]: line index, column, and whether to draw it. */
+    data class Cursor(val row: Int, val col: Int, val visible: Boolean)
+
+    private val _cursor = MutableStateFlow(Cursor(0, 0, true))
+    val cursor: StateFlow<Cursor> = _cursor.asStateFlow()
+
+    /**
+     * DECCKM: while a full-screen program has it set, arrows must be sent as
+     * `ESC O A` rather than `ESC [ A` (see [TerminalKeys.cursorKey]).
+     */
+    val applicationCursorKeys: Boolean get() = emulator.applicationCursorKeys
 
     /** Plain-text mirror (scrollback) so late-binding panels still see history. */
     /** False once the shell has exited (ctrl-D, `exit`, or a crash). */
@@ -56,6 +85,8 @@ class ShellSession(
         private set
 
     private var ptyFd: ParcelFileDescriptor? = null
+    private var lastRows = 0
+    private var lastCols = 0
     private var pid = -1
     private var process: Process? = null
     private var writer: OutputStream? = null
@@ -63,8 +94,13 @@ class ShellSession(
     @Synchronized
     private fun append(chunk: String) {
         emulator.feed(chunk)
+        publish()
+    }
+
+    private fun publish() {
         _screen.value = emulator.render()
         _transcript.value = emulator.plainText()
+        _cursor.value = Cursor(emulator.cursorRow, emulator.cursorCol, emulator.cursorVisible)
     }
 
     fun start() {
@@ -77,7 +113,8 @@ class ShellSession(
             append(
                 if (sandboxed) {
                     "Kodelab shell — Alpine Linux under proot (fake root)\n" +
-                        "apk works: try  apk add git nodejs npm\n\n"
+                        "curl, git, ssh and a terminfo database are in; add what\n" +
+                        "you like with apk:  apk add nodejs npm github-cli go …\n\n"
                 } else {
                     "Kodelab shell — /system/bin/sh on a real pty\n" +
                         "No package manager here. Tap “Install Linux” in the\n" +
@@ -98,7 +135,10 @@ class ShellSession(
             argv = argv,
             envp = envp,
             cwd = workDir,
-            rows = 24, cols = 100,
+            // Placeholder geometry: the view measures itself and calls
+            // resize() with the real window size as soon as it is laid out.
+            rows = if (lastRows > 0) lastRows else 24,
+            cols = if (lastCols > 0) lastCols else 80,
             outPid = outPid,
         )
         if (fd < 0) return false
@@ -147,6 +187,9 @@ class ShellSession(
             "COLORTERM=truecolor",
             "LANG=C.UTF-8",
             "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            // What Go's browser package (so `gh`), python's webbrowser and
+            // most CLIs check before giving up and printing a URL to copy.
+            "BROWSER=/usr/local/bin/xdg-open",
             "/bin/sh", "-l",
         )).toTypedArray()
         val envp = arrayOf(
@@ -189,11 +232,26 @@ class ShellSession(
     private fun pump(input: InputStream) {
         scope.launch {
             val buf = ByteArray(4096)
+            // Decode across reads: a multi-byte character (box drawing, an
+            // emoji in a spinner) can straddle two reads, and decoding each
+            // chunk on its own turns those into replacement blocks.
+            val decoder = Charsets.UTF_8.newDecoder()
+                .onMalformedInput(CodingErrorAction.REPLACE)
+                .onUnmappableCharacter(CodingErrorAction.REPLACE)
+            val pending = ByteBuffer.allocate(8192)
+            val chars = CharBuffer.allocate(8192)
             runCatching {
                 while (isActive) {
                     val n = input.read(buf)
                     if (n < 0) break
-                    val chunk = String(buf, 0, n)
+                    pending.put(buf, 0, n)
+                    pending.flip()
+                    decoder.decode(pending, chars, false)
+                    pending.compact() // whatever is left is a partial character
+                    chars.flip()
+                    val chunk = chars.toString()
+                    chars.clear()
+                    if (chunk.isEmpty()) continue
                     append(chunk)
                     _output.emit(chunk)
                 }
@@ -218,7 +276,31 @@ class ShellSession(
 
     fun sendInterrupt() = write("\u0003")
 
+    /**
+     * Paste text at the prompt. A program that asked for bracketed paste
+     * (DECSET 2004 — shells, editors, claude) gets it wrapped in the markers
+     * that tell it this was pasted rather than typed, so a multi-line paste
+     * doesn't run itself line by line.
+     */
+    fun paste(text: String) {
+        if (text.isEmpty()) return
+        val body = text.replace("\r\n", "\r").replace("\n", "\r")
+        write(if (emulator.bracketedPaste) "\u001B[200~" + body + "\u001B[201~" else body)
+    }
+
+    /**
+     * Follow the view's real size. Both halves matter: the pty's winsize is what
+     * programs read to lay themselves out, and the emulator needs the same
+     * geometry or its cursor arithmetic disagrees with theirs.
+     */
+    @Synchronized
     fun resize(rows: Int, cols: Int) {
+        if (rows < 1 || cols < 1) return
+        if (rows == lastRows && cols == lastCols) return
+        lastRows = rows
+        lastCols = cols
+        emulator.resize(rows, cols)
+        publish()
         val fd = ptyFd?.fd ?: return
         Pty.resize(fd, rows, cols)
     }
