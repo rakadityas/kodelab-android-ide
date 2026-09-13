@@ -194,7 +194,13 @@ fun IdeScaffold(state: IdeUiState, actions: IdeActions, viewModel: IdeViewModel)
                 enter = expandHorizontally(PANEL_SPEC_INT, expandFrom = Alignment.Start) + fadeIn(PANEL_SPEC),
                 exit = shrinkHorizontally(PANEL_SPEC_INT, shrinkTowards = Alignment.Start) + fadeOut(PANEL_SPEC),
             ) {
-                SidePanel(state, actions, viewModel, Modifier.width(scaled(240.dp)).fillMaxHeight())
+                // Nearly the whole pane: a file tree is mostly long paths, and
+                // 240dp of a phone screen truncated all of them. The sliver of
+                // editor left over is there to keep your place in view — and to
+                // be tapped, which closes the panel. Capped so that on a tablet
+                // this stays a panel rather than swallowing the screen.
+                val panelWidth = minOf(paneWidth * 0.9f, scaled(420.dp))
+                SidePanel(state, actions, viewModel, Modifier.width(panelWidth).fillMaxHeight())
             }
             // requiredWidth, not weight: the pane keeps the width it has when
             // the panel is closed, and the overflow is clipped by the box.
