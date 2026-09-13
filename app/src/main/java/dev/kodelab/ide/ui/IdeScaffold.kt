@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -114,9 +115,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.lerp
@@ -177,6 +180,15 @@ fun IdeScaffold(state: IdeUiState, actions: IdeActions, viewModel: IdeViewModel)
             if (!state.fullScreen) {
                 ActivityRail(state, actions, viewModel, onOpenSettings = { settingsOpen = true })
             }
+            // The side panel pushes the editor and terminal off the edge of the
+            // screen rather than squeezing them into what's left. Re-flowing
+            // that pane to a phone-minus-panel width rewrapped every line in it
+            // — the terminal's own header among them — and then rewrapped them
+            // all back when the panel closed. Off the edge is where a narrow
+            // window goes; the layout underneath doesn't change at all.
+            BoxWithConstraints(Modifier.weight(1f).fillMaxHeight().clipToBounds()) {
+            val paneWidth = maxWidth
+            Row(Modifier.fillMaxSize()) {
             AnimatedVisibility(
                 visible = state.sidebarVisible && !state.fullScreen,
                 enter = expandHorizontally(PANEL_SPEC_INT, expandFrom = Alignment.Start) + fadeIn(PANEL_SPEC),
@@ -184,7 +196,9 @@ fun IdeScaffold(state: IdeUiState, actions: IdeActions, viewModel: IdeViewModel)
             ) {
                 SidePanel(state, actions, viewModel, Modifier.width(scaled(240.dp)).fillMaxHeight())
             }
-            Column(Modifier.weight(1f).fillMaxHeight()) {
+            // requiredWidth, not weight: the pane keeps the width it has when
+            // the panel is closed, and the overflow is clipped by the box.
+            Column(Modifier.requiredWidth(paneWidth).fillMaxHeight()) {
                 // A maximised terminal takes the whole column so you can focus on
                 // it; the editor (and its tab bar) step aside until you restore.
                 val fullTerminal = state.panelVisible && state.terminalMaximized
@@ -267,6 +281,8 @@ fun IdeScaffold(state: IdeUiState, actions: IdeActions, viewModel: IdeViewModel)
                     )
                 }
             }
+            } // Row: side panel + pane
+            } // BoxWithConstraints
         }
         AnimatedVisibility(
             visible = WindowInsets.isImeVisible && !state.panelVisible,
@@ -1684,7 +1700,12 @@ private fun TerminalPanel(state: IdeUiState, actions: IdeActions, modifier: Modi
                     lineHeight = termLine,
                     hint = if (typingAllowed) "tap here and type a command below — the keyboard opens on tap"
                     else "reading mode — tap the prompt below to type",
-                    onTap = { if (typingAllowed) runCatching { inputFocus.requestFocus() } },
+                    onTap = {
+                        // Same as tapping the code: working in here means the
+                        // side panel can get out of the way.
+                        if (state.sidebarVisible) actions.toggleSidebar()
+                        if (typingAllowed) runCatching { inputFocus.requestFocus() }
+                    },
                 )
             }
         }
@@ -1791,7 +1812,12 @@ private fun TerminalPanel(state: IdeUiState, actions: IdeActions, modifier: Modi
                     input = ""
                     session?.exec(cmd)
                 }),
-                modifier = Modifier.weight(1f).focusRequester(inputFocus),
+                modifier = Modifier
+                    .weight(1f)
+                    .focusRequester(inputFocus)
+                    // Typing at the prompt is the same signal as tapping the
+                    // body: this is the pane being used now.
+                    .onFocusChanged { if (it.isFocused && state.sidebarVisible) actions.toggleSidebar() },
             )
         }
     }
