@@ -165,7 +165,6 @@ interface IdeActions {
     fun gitCommit()
     fun openGitDiff(file: GitFileStatus, staged: Boolean)
     fun setTheme(themeId: String)
-    fun cycleTheme()
     /** Ask the host to pick a theme JSON file to import. */
     fun requestImportTheme()
     /** Parse + persist a picked theme JSON and switch to it. */

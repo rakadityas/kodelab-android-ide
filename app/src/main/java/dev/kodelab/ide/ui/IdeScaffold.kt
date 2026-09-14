@@ -4,6 +4,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -34,7 +35,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -44,6 +44,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.isImeVisible
@@ -115,7 +116,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -147,6 +147,8 @@ import dev.kodelab.ide.terminal.TerminalSchemes
 import dev.kodelab.ide.terminal.TerminalHost
 import dev.kodelab.ide.terminal.TerminalKeys
 import dev.kodelab.ide.theme.EditorPalette
+import dev.kodelab.ide.theme.CodeScheme
+import dev.kodelab.ide.theme.CodeSchemes
 import dev.kodelab.ide.theme.KodelabThemes
 import dev.kodelab.ide.theme.LocalEditorPalette
 import dev.kodelab.ide.workspace.WorkspaceRepository
@@ -167,6 +169,19 @@ private val PANEL_SPEC_OFFSET = tween<androidx.compose.ui.unit.IntOffset>(durati
 fun IdeScaffold(state: IdeUiState, actions: IdeActions, viewModel: IdeViewModel) {
     val palette = LocalEditorPalette.current
     var settingsOpen by remember { mutableStateOf(false) }
+    // Owned here, not inside the reader: the floating top/bottom buttons drive
+    // whichever view is actually on screen, and in reading mode that is this
+    // document rather than the Monaco buffer behind it.
+    val readerScroll = rememberLazyListState()
+    val scaffoldScope = rememberCoroutineScope()
+    // One theme dresses everything: the chrome takes the palette, the editor
+    // takes the matching syntax colours. A theme that is only a code scheme
+    // (Solarized, Nord, …) has its chrome derived from it; one that is only a
+    // chrome palette (Kodelab Dark, an imported theme) has its syntax colours
+    // derived instead.
+    val codeScheme = remember(state.presets.themeId, state.customThemes, palette) {
+        codeSchemeFor(state.presets.themeId, state.customThemes, palette)
+    }
 
     CompositionLocalProvider(LocalUiScale provides state.presets.uiScale) {
     Column(
@@ -180,31 +195,30 @@ fun IdeScaffold(state: IdeUiState, actions: IdeActions, viewModel: IdeViewModel)
             if (!state.fullScreen) {
                 ActivityRail(state, actions, viewModel, onOpenSettings = { settingsOpen = true })
             }
-            // The side panel pushes the editor and terminal off the edge of the
-            // screen rather than squeezing them into what's left. Re-flowing
-            // that pane to a phone-minus-panel width rewrapped every line in it
-            // — the terminal's own header among them — and then rewrapped them
-            // all back when the panel closed. Off the edge is where a narrow
-            // window goes; the layout underneath doesn't change at all.
-            BoxWithConstraints(Modifier.weight(1f).fillMaxHeight().clipToBounds()) {
-            val paneWidth = maxWidth
-            Row(Modifier.fillMaxSize()) {
-            AnimatedVisibility(
-                visible = state.sidebarVisible && !state.fullScreen,
-                enter = expandHorizontally(PANEL_SPEC_INT, expandFrom = Alignment.Start) + fadeIn(PANEL_SPEC),
-                exit = shrinkHorizontally(PANEL_SPEC_INT, shrinkTowards = Alignment.Start) + fadeOut(PANEL_SPEC),
-            ) {
-                // Nearly the whole pane: a file tree is mostly long paths, and
-                // 240dp of a phone screen truncated all of them. The sliver of
-                // editor left over is there to keep your place in view — and to
-                // be tapped, which closes the panel. Capped so that on a tablet
-                // this stays a panel rather than swallowing the screen.
-                val panelWidth = minOf(paneWidth * 0.9f, scaled(420.dp))
-                SidePanel(state, actions, viewModel, Modifier.width(panelWidth).fillMaxHeight())
+            // Panel and pane split the space left of the rail by weight, nine
+            // parts to one. Weights are settled by the Row itself, so the ratio
+            // is exactly what it says here — an earlier version set an explicit
+            // width on the panel and the rendered result kept coming out as the
+            // leftover instead, inverted from what was asked for.
+            //
+            // The panel is only in the layout while it is open: a weight would
+            // hold its share of the row open even with nothing in it.
+            val panelOpen = state.sidebarVisible && !state.fullScreen
+            // The split itself is what animates: the panel's share of the row
+            // runs between 0 and 9 on the same curve everything else uses, so
+            // the pane slides over to meet it instead of appearing at its final
+            // size. A weight has to be greater than zero, so the panel leaves
+            // the layout entirely once its share has run out.
+            val panelShare by animateFloatAsState(
+                targetValue = if (panelOpen) 9f else 0f,
+                animationSpec = PANEL_SPEC,
+                label = "panel-share",
+            )
+            if (panelShare > 0.01f) {
+                SidePanel(state, actions, viewModel, Modifier.weight(panelShare).fillMaxHeight())
             }
-            // requiredWidth, not weight: the pane keeps the width it has when
-            // the panel is closed, and the overflow is clipped by the box.
-            Column(Modifier.requiredWidth(paneWidth).fillMaxHeight()) {
+            Box(Modifier.weight((10f - panelShare).coerceAtLeast(0.01f)).fillMaxHeight()) {
+            Column(Modifier.fillMaxSize()) {
                 // A maximised terminal takes the whole column so you can focus on
                 // it; the editor (and its tab bar) step aside until you restore.
                 val fullTerminal = state.panelVisible && state.terminalMaximized
@@ -217,7 +231,7 @@ fun IdeScaffold(state: IdeUiState, actions: IdeActions, viewModel: IdeViewModel)
                 }
                 Box(
                     if (fullTerminal) Modifier.size(1.dp)
-                    else Modifier.weight(1f).fillMaxWidth().background(palette.surface),
+                    else Modifier.weight(1f).fillMaxWidth().background(codeScheme.background),
                 ) {
                     // Native views always draw above Compose content, so the
                     // WebView is shrunk (not removed) while reading — that keeps
@@ -227,6 +241,7 @@ fun IdeScaffold(state: IdeUiState, actions: IdeActions, viewModel: IdeViewModel)
                     EditorWebView(
                         controller = viewModel.editor,
                         palette = palette,
+                        codeScheme = codeScheme,
                         onEvent = actions::onWebEvent,
                         modifier = if (reading || fullTerminal || empty) Modifier.size(1.dp)
                         else Modifier.fillMaxSize(),
@@ -257,25 +272,42 @@ fun IdeScaffold(state: IdeUiState, actions: IdeActions, viewModel: IdeViewModel)
                             baseFontSizeSp = state.presets.fontSizeSp,
                             onLinkClick = actions::readerLinkClicked,
                             modifier = Modifier.fillMaxSize(),
+                            listState = readerScroll,
                         )
                     }
                     // Following a reference has to be reversible: this is the
                     // way back (and forward again) without a keyboard.
                     if (!empty && !fullTerminal) {
                         Box(Modifier.align(Alignment.BottomEnd).padding(12.dp)) {
-                            EditorFloatingNav(state, actions)
-                        }
-                    }
-                    // Drawn last, so the reader — which fills this box — can't
-                    // cover the only way out of full screen.
-                    if (state.fullScreen) {
-                        Box(Modifier.align(Alignment.TopEnd).padding(10.dp)) {
-                            FullScreenExitButton(onClick = actions::toggleFullScreen)
+                            EditorFloatingNav(
+                                state = state,
+                                actions = actions,
+                                // In reading mode the buttons have to move the
+                                // document on screen, not the editor hidden
+                                // behind it — and Monaco's find widget has
+                                // nothing to search there, so it steps aside.
+                                reading = reading,
+                                onTop = {
+                                    if (reading) scaffoldScope.launch { readerScroll.animateScrollToItem(0) }
+                                    else actions.scrollEditorTo("top")
+                                },
+                                onBottom = {
+                                    if (reading) scaffoldScope.launch {
+                                        val last = (readerScroll.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
+                                        readerScroll.animateScrollToItem(last)
+                                    } else actions.scrollEditorTo("bottom")
+                                },
+                            )
                         }
                     }
                 }
+                // Full screen hides the chrome, not the content: the terminal
+                // stays. It used to be hidden here while the editor was also
+                // shrunk away for a maximised terminal, which left the whole
+                // window blank with no way back — the exit button lived inside
+                // the shrunk editor.
                 AnimatedVisibility(
-                    visible = state.panelVisible && !state.fullScreen,
+                    visible = state.panelVisible,
                     enter = slideInVertically(PANEL_SPEC_OFFSET) { it } + expandVertically(PANEL_SPEC_INT) + fadeIn(PANEL_SPEC),
                     exit = slideOutVertically(PANEL_SPEC_OFFSET) { it } + shrinkVertically(PANEL_SPEC_INT) + fadeOut(PANEL_SPEC),
                     modifier = if (fullTerminal) Modifier.weight(1f) else Modifier,
@@ -287,8 +319,14 @@ fun IdeScaffold(state: IdeUiState, actions: IdeActions, viewModel: IdeViewModel)
                     )
                 }
             }
-            } // Row: side panel + pane
-            } // BoxWithConstraints
+            // Outside the column, so it is reachable whatever is filling the
+            // pane — editor, reader or a maximised terminal.
+            if (state.fullScreen) {
+                Box(Modifier.align(Alignment.TopEnd).padding(10.dp)) {
+                    FullScreenExitButton(onClick = actions::toggleFullScreen)
+                }
+            }
+            } // Box: pane + full-screen exit
         }
         AnimatedVisibility(
             visible = WindowInsets.isImeVisible && !state.panelVisible,
@@ -411,7 +449,13 @@ private fun ActivityRail(
  * than appearing and disappearing under the thumb that is reaching for it.
  */
 @Composable
-private fun EditorFloatingNav(state: IdeUiState, actions: IdeActions) {
+private fun EditorFloatingNav(
+    state: IdeUiState,
+    actions: IdeActions,
+    reading: Boolean,
+    onTop: () -> Unit,
+    onBottom: () -> Unit,
+) {
     val palette = LocalEditorPalette.current
     Row(
         Modifier
@@ -439,21 +483,23 @@ private fun EditorFloatingNav(state: IdeUiState, actions: IdeActions) {
             Icons.Filled.KeyboardDoubleArrowUp,
             "Top of file",
             enabled = true,
-            onClick = { actions.scrollEditorTo("top") },
+            onClick = onTop,
         )
         FloatingNavButton(
             Icons.Filled.KeyboardDoubleArrowDown,
             "Bottom of file",
             enabled = true,
-            onClick = { actions.scrollEditorTo("bottom") },
+            onClick = onBottom,
         )
-        Spacer(Modifier.width(1.dp).height(scaled(22.dp)).background(palette.border))
-        FloatingNavButton(
-            Icons.Filled.Search,
-            "Find in this file",
-            enabled = true,
-            onClick = actions::findInFile,
-        )
+        if (!reading) {
+            Spacer(Modifier.width(1.dp).height(scaled(22.dp)).background(palette.border))
+            FloatingNavButton(
+                Icons.Filled.Search,
+                "Find in this file",
+                enabled = true,
+                onClick = actions::findInFile,
+            )
+        }
     }
 }
 
@@ -1435,15 +1481,25 @@ private fun ModifierKey(label: String, armed: Boolean, onClick: () -> Unit) {
 @Composable
 private fun AccessoryKey(label: String, half: Boolean = false, onClick: () -> Unit) {
     val palette = LocalEditorPalette.current
+    // Sized to its label, with the old fixed width as a floor: "paste" is five
+    // characters and a 40dp box cut the e off.
     Box(
         Modifier
-            .size(width = scaled(40.dp), height = scaled(if (half) 14.dp else 30.dp))
+            .widthIn(min = scaled(40.dp))
+            .height(scaled(if (half) 14.dp else 30.dp))
             .clip(RoundedCornerShape(5.dp))
             .background(palette.panel)
-            .clickable(onClick = onClick),
+            .clickable(onClick = onClick)
+            .padding(horizontal = 6.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(label, color = palette.textPrimary, fontSize = 14.sp, fontFamily = FontFamily.Monospace)
+        Text(
+            label,
+            color = palette.textPrimary,
+            fontSize = 14.sp,
+            fontFamily = FontFamily.Monospace,
+            maxLines = 1,
+        )
     }
 }
 
@@ -2042,15 +2098,31 @@ private fun SettingsSection(title: String) {
 }
 
 /** Built-in + imported themes, each as a swatch row that applies on tap. */
+/** The scheme the code area draws with: "auto" means the app theme's own. */
+private fun codeSchemeFor(
+    id: String,
+    custom: List<CustomTheme>,
+    appPalette: EditorPalette,
+): CodeScheme = CodeSchemes.byId(id)
+    ?: when (id) {
+        KodelabThemes.DARK -> CodeSchemes.fromPalette(KodelabThemes.dark)
+        KodelabThemes.LIGHT -> CodeSchemes.fromPalette(KodelabThemes.light)
+        else -> custom.firstOrNull { it.id == id }?.palette
+            ?.let { CodeSchemes.fromPalette(it) }
+            ?: CodeSchemes.fromPalette(appPalette)
+    }
+
 @Composable
 private fun ThemePicker(state: IdeUiState, actions: IdeActions) {
     val palette = LocalEditorPalette.current
     val builtIns = listOf(
+        KodelabThemes.SYSTEM to "Follow system",
         KodelabThemes.DARK to "Kodelab Dark",
         KodelabThemes.LIGHT to "Kodelab Light",
-        KodelabThemes.SYSTEM to "Follow system",
     )
-    val all = builtIns + state.customThemes.map { it.id to it.name }
+    val all = builtIns +
+        CodeSchemes.all.map { it.id to it.name } +
+        state.customThemes.map { it.id to it.name }
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         all.forEach { (id, name) ->
             val selected = state.presets.themeId == id
@@ -2068,17 +2140,23 @@ private fun ThemePicker(state: IdeUiState, actions: IdeActions) {
                     KodelabThemes.DARK -> KodelabThemes.dark
                     KodelabThemes.LIGHT -> KodelabThemes.light
                     KodelabThemes.SYSTEM -> palette
-                    else -> state.customThemes.firstOrNull { it.id == id }?.palette ?: palette
+                    else -> KodelabThemes.paletteFor(
+                        id, palette.isDark, state.customThemes.associate { it.id to it.palette },
+                    )
                 }
+                val code = codeSchemeFor(id, state.customThemes, swatch)
+                // Chrome, page, and the two token colours you notice first, so
+                // the row previews the whole theme rather than half of it.
                 Row(
                     Modifier
-                        .size(width = 34.dp, height = 16.dp)
+                        .size(width = 46.dp, height = 16.dp)
                         .clip(RoundedCornerShape(3.dp))
                         .border(1.dp, palette.border, RoundedCornerShape(3.dp)),
                 ) {
                     Box(Modifier.weight(1f).fillMaxHeight().background(swatch.chrome))
-                    Box(Modifier.weight(1f).fillMaxHeight().background(swatch.surface))
-                    Box(Modifier.weight(1f).fillMaxHeight().background(swatch.accent))
+                    Box(Modifier.weight(1.3f).fillMaxHeight().background(code.background))
+                    Box(Modifier.weight(1f).fillMaxHeight().background(code.keyword))
+                    Box(Modifier.weight(1f).fillMaxHeight().background(code.string))
                 }
                 Text(
                     name,
@@ -2281,11 +2359,5 @@ private fun StatusBar(state: IdeUiState, actions: IdeActions) {
         )
         Text(state.statusText, color = Color.White.copy(alpha = 0.85f), fontSize = 11.sp, maxLines = 1)
         Spacer(Modifier.weight(1f))
-        Text(
-            state.presets.themeId,
-            color = Color.White,
-            fontSize = 11.sp,
-            modifier = Modifier.clickable { actions.cycleTheme() },
-        )
     }
 }

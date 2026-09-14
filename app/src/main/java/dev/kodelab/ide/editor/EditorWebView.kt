@@ -16,6 +16,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewClientCompat
 import dev.kodelab.ide.lsp.LspDiagnostic
+import dev.kodelab.ide.theme.CodeScheme
 import dev.kodelab.ide.theme.EditorPalette
 import dev.kodelab.ide.workspace.WorkspacePresets
 import org.json.JSONArray
@@ -74,10 +75,35 @@ class EditorController {
         }
     }
 
-    fun applyTheme(palette: EditorPalette) {
+    /**
+     * [palette] dresses the page around the editor; [scheme], when given, is the
+     * code area's own colours and syntax rules (see CodeScheme).
+     */
+    fun applyTheme(palette: EditorPalette, scheme: CodeScheme? = null) {
         val tokens = JSONObject()
         palette.toWebTokens().forEach { (k, v) -> tokens.put(k, v) }
-        send("theme.apply", JSONObject().put("tokens", tokens))
+        val params = JSONObject().put("tokens", tokens)
+        scheme?.let { params.put("code", it.toWebTheme().toJson()) }
+        send("theme.apply", params)
+    }
+
+    private fun Map<String, Any>.toJson(): JSONObject {
+        val out = JSONObject()
+        forEach { (k, v) ->
+            when (v) {
+                is List<*> -> {
+                    val arr = JSONArray()
+                    v.filterIsInstance<Map<*, *>>().forEach { rule ->
+                        val o = JSONObject()
+                        rule.forEach { (rk, rv) -> o.put(rk.toString(), rv) }
+                        arr.put(o)
+                    }
+                    out.put(k, arr)
+                }
+                else -> out.put(k, v)
+            }
+        }
+        return out
     }
 
     /** Reading controls from the workspace presets (REQ 2/8). */
@@ -154,6 +180,7 @@ class EditorController {
 fun EditorWebView(
     controller: EditorController,
     palette: EditorPalette,
+    codeScheme: CodeScheme? = null,
     onEvent: (method: String, params: String) -> Unit,
     modifier: Modifier = Modifier,
     editMode: Boolean = true,
@@ -167,6 +194,8 @@ fun EditorWebView(
     editModeRef.value = editMode
     val onTapRef = remember { mutableStateOf(onTap) }
     onTapRef.value = onTap
+    val schemeRef = remember { mutableStateOf(codeScheme) }
+    schemeRef.value = codeScheme
 
     AndroidView(
         modifier = modifier,
@@ -210,7 +239,7 @@ fun EditorWebView(
                         assetLoader.shouldInterceptRequest(request.url)
 
                     override fun onPageFinished(view: WebView, url: String) {
-                        controller.applyTheme(palette)
+                        controller.applyTheme(palette, schemeRef.value)
                     }
 
                     @Deprecated("kept for < API 24 parity")
@@ -223,7 +252,7 @@ fun EditorWebView(
         },
         update = {
             controller.webView = it
-            controller.applyTheme(palette) // recomposes on theme change — keep Monaco in sync
+            controller.applyTheme(palette, codeScheme) // recomposes on theme change — keep Monaco in sync
             if (!editMode) {
                 it.clearFocus()
                 val imm = it.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)

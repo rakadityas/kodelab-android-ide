@@ -97,7 +97,11 @@ object KodelabThemes {
         LIGHT -> light
         DARK -> dark
         SYSTEM -> if (systemDark) dark else light
-        else -> custom[themeId] ?: if (systemDark) dark else light
+        // A bundled code scheme themes the chrome too, so that one choice
+        // dresses the whole app rather than only the code area.
+        else -> CodeSchemes.byId(themeId)?.let { with(CodeSchemes) { it.toPalette() } }
+            ?: custom[themeId]
+            ?: if (systemDark) dark else light
     }
 }
 

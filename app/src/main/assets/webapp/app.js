@@ -21,6 +21,7 @@
   var selectionDelayMs = 350; // how long after a selection the chip appears
   var pendingSettings = null;
   var pendingThemeTokens = null;
+  var pendingCodeScheme = null;
   var queued = []; // messages that arrived before Monaco booted
 
   function toNative(method, params) {
@@ -36,25 +37,46 @@
     return (hex && hex.length === 9) ? hex.slice(0, 7) : hex;
   }
 
-  function applyTheme(tokens) {
+  /**
+   * `tokens` dress the page; `code`, when present, is the editor's own scheme —
+   * background, cursor, selection and the syntax rules that make a theme a
+   * theme rather than a change of paper. Without it the editor follows the app
+   * palette on Monaco's stock vs / vs-dark token colours.
+   */
+  function applyTheme(tokens, code) {
     if (!tokens) return;
     pendingThemeTokens = tokens;
+    if (code) pendingCodeScheme = code; else if (code === null) pendingCodeScheme = null;
+    var scheme = code || pendingCodeScheme;
     var r = document.documentElement.style;
     ["surface", "panel", "textPrimary", "textMuted", "accent", "border"].forEach(function (k) {
       if (tokens[k]) r.setProperty("--" + k, stripAlpha(tokens[k]));
     });
     if (monacoReady && window.monaco) {
+      var colors = {
+        "editor.background": stripAlpha(tokens.surface),
+        "editor.foreground": stripAlpha(tokens.textPrimary),
+        "editorLineNumber.foreground": stripAlpha(tokens.textMuted),
+        "editorCursor.foreground": stripAlpha(tokens.accent),
+        "editor.lineHighlightBorder": stripAlpha(tokens.border),
+      };
+      if (scheme) {
+        colors["editor.background"] = scheme.background;
+        colors["editor.foreground"] = scheme.foreground;
+        colors["editorLineNumber.foreground"] = scheme.lineNumbers;
+        colors["editorCursor.foreground"] = scheme.cursor;
+        colors["editor.selectionBackground"] = scheme.selection;
+        colors["editor.lineHighlightBackground"] = scheme.currentLine;
+        colors["editor.lineHighlightBorder"] = scheme.currentLine;
+        // The page behind the editor has to match, or the padding around it
+        // stays the old colour.
+        r.setProperty("--surface", scheme.background);
+      }
       window.monaco.editor.defineTheme("kodelab", {
-        base: tokens.base || "vs-dark",
+        base: (scheme && scheme.base) || tokens.base || "vs-dark",
         inherit: true,
-        rules: [],
-        colors: {
-          "editor.background": stripAlpha(tokens.surface),
-          "editor.foreground": stripAlpha(tokens.textPrimary),
-          "editorLineNumber.foreground": stripAlpha(tokens.textMuted),
-          "editorCursor.foreground": stripAlpha(tokens.accent),
-          "editor.lineHighlightBorder": stripAlpha(tokens.border),
-        },
+        rules: (scheme && scheme.rules) || [],
+        colors: colors,
       });
       window.monaco.editor.setTheme("kodelab");
     }
@@ -451,7 +473,7 @@
       }
       var p = msg.params || {};
       switch (msg.method) {
-        case "theme.apply":     applyTheme(p.tokens); break;
+        case "theme.apply":     applyTheme(p.tokens, p.code || null); break;
         case "settings.apply":  applySettings(p); break;
         case "buffer.open":     openBuffer(p.tabId, p.text || "", p.languageId); break;
         case "buffer.show":     showBuffer(p.tabId); break;
@@ -574,7 +596,7 @@
         pinContainerScroll();
         reportPosition(editor);
         monacoReady = true;
-        if (pendingThemeTokens) applyTheme(pendingThemeTokens);
+        if (pendingThemeTokens) applyTheme(pendingThemeTokens, pendingCodeScheme);
         if (pendingSettings) applySettings(pendingSettings);
         var q = queued; queued = [];
         q.forEach(api.receive);

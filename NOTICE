@@ -56,6 +56,23 @@ Downloaded at runtime from the projects' own servers, NOT redistributed here:
       Linux sandbox; Kodelab only speaks the Language Server Protocol.
 
 --------------------------------------------------------------------------------
+Colour schemes:
+
+  The editor colour schemes (Solarized, Nord, Dracula, Gruvbox, One Dark) are
+  re-expressed in Kodelab's own CodeScheme type from each project's published,
+  MIT-licensed colour values. No theme file from another editor is bundled or
+  redistributed; users can import standard theme JSON at runtime into
+  .kodelab/themes/.
+
+    Solarized   MIT  (c) Ethan Schoonover    https://ethanschoonover.com/solarized
+    Nord        MIT  (c) Sven Greb           https://www.nordtheme.com
+    Dracula     MIT  (c) Zeno Rocha          https://draculatheme.com
+    Gruvbox     MIT  (c) Pavel Pertsev       https://github.com/morhetz/gruvbox
+    One Dark    MIT  (c) GitHub (Atom)       https://github.com/atom/atom
+
+  "Kodelab Dark", "Kodelab Light" and "Paper" are original to this project.
+
+--------------------------------------------------------------------------------
 NOT used, by design:
 
   Microsoft Visual Studio Marketplace and its APIs — its terms restrict use to

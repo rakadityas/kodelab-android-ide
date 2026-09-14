@@ -942,14 +942,6 @@ class IdeViewModel(
         }
     }
 
-    override fun cycleTheme() {
-        // Cycle built-ins then any imported themes, in a stable order.
-        val order = listOf(KodelabThemes.DARK, KodelabThemes.LIGHT, KodelabThemes.SYSTEM) +
-            _state.value.customThemes.map { it.id }
-        val idx = order.indexOf(_state.value.presets.themeId)
-        setTheme(order[(idx + 1) % order.size])
-    }
-
     /** Palettes for the composable layer, keyed by imported-theme id. */
     fun customPalettes(): Map<String, dev.kodelab.ide.theme.EditorPalette> =
         _state.value.customThemes.associate { it.id to it.palette }

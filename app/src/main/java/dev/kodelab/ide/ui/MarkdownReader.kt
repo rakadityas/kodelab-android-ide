@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -48,12 +50,15 @@ fun MarkdownReader(
     baseFontSizeSp: Int,
     onLinkClick: (String) -> Unit,
     modifier: Modifier = Modifier,
+    /** Hoisted so the floating top/bottom buttons can drive this document. */
+    listState: LazyListState = rememberLazyListState(),
 ) {
     val palette = LocalEditorPalette.current
     val blocks = remember(source) { Markdown.parse(source) }
     val base = baseFontSizeSp.coerceIn(8, 40)
 
     LazyColumn(
+        state = listState,
         modifier = modifier.background(palette.surface),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
