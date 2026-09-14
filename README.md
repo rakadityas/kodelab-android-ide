@@ -17,7 +17,10 @@ See [`docs/architecture.md`](docs/architecture.md) and [`docs/IP-SAFETY.md`](doc
 | Open folder (SAF tree picker), lazy file tree, open files into tabs | ✅ working |
 | Monaco (MIT) in WebView: per-tab models, syntax highlighting, edit + save to disk | ✅ working |
 | Soft-keyboard editing inside Monaco (WebView focus fix + worker proxy) | ✅ working |
-| Theme cycle/picker — native chrome + Monaco + terminal follow one token set | ✅ working |
+| Theme picker — native chrome + Monaco + terminal follow one token set | ✅ working |
+| Named code schemes: Solarized Dark/Light, Nord, Dracula, Gruvbox Dark, One Dark, Paper — token colours, not just a background | ✅ working |
+| Terminal colour schemes: Midnight, Ember, Phosphor, Paper, or follow the theme | ✅ working |
+| Settings page: theme, font sizes, word wrap, touch-target scale, selection delay — all saved per folder | ✅ working |
 | Per-folder presets: `.kodelab/workspace.json` written/read on theme change/open | ✅ working |
 | Shared terminal on a **real PTY** (JNI `forkpty` shim): shell echo, prompt, ^C/SIGINT | ✅ working; falls back to a pipe if the lib is missing |
 | **Linux sandbox**: "Install Linux" downloads proot + Alpine at runtime, boots fake-root Alpine, `apk add git` works (verified: git 2.45.4) | ✅ working |
@@ -25,9 +28,15 @@ See [`docs/architecture.md`](docs/architecture.md) and [`docs/IP-SAFETY.md`](doc
 | Explorer file ops: new file/folder, rename, delete (long-press menu) | ✅ working |
 | Command palette: fuzzy commands + file quick-open | ✅ working |
 | Multi-window: “New window” → separate task, same terminal service | ✅ working |
+| Reading mode (read-only, keyboard stays down) ⇄ edit mode, one rail tap | ✅ working |
+| Markdown reader: render the open `.md` as a document, with in-workspace links | ✅ working |
+| Full screen: hide rail, tabs and status bar; one floating button to come back | ✅ working |
+| Selection actions + floating nav: find references, go to definition, copy/cut/paste, back/forward, find in file | ✅ working |
+| Open the Alpine home as a workspace — clone in the terminal, edit it here | ✅ working |
 | ANSI colour terminal (SGR/256-colour, `\r` in-place progress bars) via a small VT emulator | ✅ working |
 | Search across files: recursive SAF walk, results grouped by file, tap a hit to jump to the line | ✅ working |
 | Git panel over the sandbox CLI: branch/ahead-behind, stage/unstage, commit, open a file's diff | ✅ working (needs `apk add git`) |
+| Git for folders the sandbox can't reach: `.git` read directly through SAF for branch + changed files (read-only) | ✅ working |
 | Theme import: load a standard color-theme JSON → Kodelab palette (native + Monaco + terminal) | ✅ working |
 | Declarative extensions (data-only): themes/snippets/grammars/LSP recipes with an SPDX license audit | ✅ working — see [`examples/extensions/`](examples/extensions/) |
 | LSP client + server supervisor: framing/JSON-RPC, sandbox transport, diagnostics → Monaco markers | 🟡 wired (protocol unit-tested; a live server run + completion/hover need on-device validation) |
@@ -118,18 +127,40 @@ follows the active workspace.
 
 ## Using Kodelab
 
+The left rail is the whole navigation: Explorer, Search, Git and Extensions at
+the top; reader, reading/edit mode, full screen, save, terminal, new window and
+Settings below. Tapping the active view again collapses the side panel, which is
+how you get the screen back on a phone.
+
 - **Open a folder** — folder icon in the Explorer header, or *Open folder…* from
   the command palette (the 🔍 in the status bar). Access is scoped to the folder
-  you pick (Android Storage Access Framework).
+  you pick (Android Storage Access Framework). The same menu has **Open from
+  terminal (Alpine home)**: clone a repo in the sandbox and edit it here — that
+  path is also the one git, the terminal and language servers can reach.
+- **Read vs. edit** — Kodelab opens in **reading mode**: the editor is read-only
+  and nothing grabs focus, so the keyboard stays down while you scroll. The
+  eye/pencil rail icon switches to edit mode. For a `.md` file a book icon
+  appears — it renders the document instead of its source.
 - **Edit** — tap a file to open it in a tab; syntax highlighting for ~25
   languages. The bar above the keyboard adds Tab, arrows, undo/redo and common
   code symbols. Save with the 💾 rail icon or *Save file* in the palette.
+- **Move around** — the floating cluster in the editor's corner is back, forward
+  and find-in-file: the three moves a phone has no key for. Highlight a symbol
+  and an **Actions** button appears with find references, go to definition, copy
+  and cut; long-press with nothing selected for Paste.
+- **Full screen** — the expand rail icon hides the rail, tabs and status bar so
+  the file gets the whole screen; a floating button brings them back.
 - **Files** — long-press a tree row for New file / New folder / Rename / Delete.
-- **Themes** — the palette rail icon cycles Kodelab Dark → Light → follow-system
-  (and any imported themes); the choice is saved per-folder in
-  `.kodelab/workspace.json`. Run *Import theme…* from the command palette to load
-  a standard color-theme `.json`; it's saved under `.kodelab/themes/` and applies
-  to the native chrome, Monaco and the terminal.
+- **Settings** (gear, bottom of the rail) — theme, editor and terminal font
+  sizes, word wrap, terminal colours, how fast the selection button appears, and
+  touch-target size (Compact / Comfortable / Large). Everything here is saved
+  per-folder in `.kodelab/workspace.json`, so a team can commit it.
+- **Themes** — the picker lists Kodelab Dark, Kodelab Light, follow-system and
+  the named code schemes (Solarized Dark/Light, Nord, Dracula, Gruvbox Dark, One
+  Dark, Paper); each row previews the chrome, page and token colours it will
+  apply. *Import theme…* loads a standard color-theme `.json` into
+  `.kodelab/themes/` and applies it to the native chrome, Monaco and the
+  terminal.
 - **Windows** — the "new window" rail icon opens a second Kodelab window (great
   on tablets, DeX and ChromeOS) sharing the same terminal.
 
@@ -140,8 +171,12 @@ app/src/main/java/dev/kodelab/ide/
   MainActivity.kt        one instance == one window (REQ 7)
   ui/                    Compose shell + IdeViewModel + state models
   editor/                WebView host, JSON-RPC bridge, EditorController
-  theme/                 Kodelab palettes + web token export
-  terminal/              shared session service + ShellSession
+  theme/                 Kodelab palettes, named CodeSchemes, web token export
+  terminal/              shared session service, ShellSession, PTY + VT emulator,
+                         proot/Alpine sandbox installer
+  git/                   sandbox git CLI + read-only .git reader over SAF
+  lsp/                   LSP client, framing, server supervisor
+  ext/                   declarative extensions + SPDX license audit
   workspace/             WorkspacePresets + device-wide SettingsStore
 app/src/main/assets/webapp/   first-party editor web app (index.html, app.js, app.css)
                               vendor/ is git-ignored, filled by scripts/build-web.sh
