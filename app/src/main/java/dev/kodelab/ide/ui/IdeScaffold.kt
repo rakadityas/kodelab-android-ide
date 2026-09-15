@@ -7,14 +7,14 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -35,6 +35,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -112,10 +114,12 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -133,6 +137,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -161,8 +166,21 @@ private val PANEL_SPEC = tween<Float>(durationMillis = 200)
 
 /** How long a newly-arrived rail button glows for. */
 private const val GLOW_MILLIS = 2000L
+
 private val PANEL_SPEC_INT = tween<androidx.compose.ui.unit.IntSize>(durationMillis = 200)
 private val PANEL_SPEC_OFFSET = tween<androidx.compose.ui.unit.IntOffset>(durationMillis = 200)
+
+/**
+ * The open side panel's share of the width beside the rail; the editor keeps
+ * the rest. One number, so the split is the same on a phone, a tablet, a fold
+ * and either orientation — change it here and both sides follow.
+ *
+ * A fraction rather than a dp width on purpose. This was `min(width * 0.9, 420.dp)`,
+ * which is a ratio on a phone and a fixed width on anything wider: the same panel
+ * came out at 90% of a portrait phone and ~43% of an unfolded Fold. Screen sizes
+ * are the thing that varies, so the constant has to be the thing that doesn't.
+ */
+private const val SIDE_PANEL_RATIO = 0.85f
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -195,29 +213,70 @@ fun IdeScaffold(state: IdeUiState, actions: IdeActions, viewModel: IdeViewModel)
             if (!state.fullScreen) {
                 ActivityRail(state, actions, viewModel, onOpenSettings = { settingsOpen = true })
             }
-            // Panel and pane split the space left of the rail by weight, nine
-            // parts to one. Weights are settled by the Row itself, so the ratio
-            // is exactly what it says here — an earlier version set an explicit
-            // width on the panel and the rendered result kept coming out as the
-            // leftover instead, inverted from what was asked for.
+            // The panel is a sheet parked under the rail, not a column the pane
+            // shares the row with. Both children are measured once, at a width
+            // that never changes: the panel at [panelWidth], the pane at the
+            // full width it has when the panel is shut. Opening only *places*
+            // them somewhere else — the pane slides right, off the edge, and
+            // uncovers the panel that was behind it all along.
             //
-            // The panel is only in the layout while it is open: a weight would
-            // hold its share of the row open even with nothing in it.
+            // Measuring is the part that has to stay still. An animated weight
+            // (what this was) re-measured the whole subtree every frame: the
+            // WebView was resized ~60 times per open, and every line of static
+            // text in the pane rewrapped to the width of that frame and back
+            // again — "Kodelab" in the welcome guide came out a letter per line.
             val panelOpen = state.sidebarVisible && !state.fullScreen
-            // The split itself is what animates: the panel's share of the row
-            // runs between 0 and 9 on the same curve everything else uses, so
-            // the pane slides over to meet it instead of appearing at its final
-            // size. A weight has to be greater than zero, so the panel leaves
-            // the layout entirely once its share has run out.
-            val panelShare by animateFloatAsState(
-                targetValue = if (panelOpen) 9f else 0f,
-                animationSpec = PANEL_SPEC,
-                label = "panel-share",
+            BoxWithConstraints(Modifier.weight(1f).fillMaxHeight().clipToBounds()) {
+            val paneWidth = maxWidth
+            // Nearly the whole pane: a file tree is mostly long paths, and a
+            // narrow panel truncated all of them. The sliver of editor left
+            // over is there to keep your place in view — and to be tapped,
+            // which closes the panel.
+            //
+            // Measured against the space beside the rail, not the whole screen,
+            // so the ratio describes the panel-to-editor split exactly: the rail
+            // is chrome that both sides sit next to, and charging it to the
+            // editor's 15% would eat most of that sliver on a phone.
+            val panelWidth = paneWidth * SIDE_PANEL_RATIO
+            // A spring, not a tween: it carries momentum into the settle, and
+            // it retargets from wherever it is when you tap again mid-slide
+            // instead of restarting the curve.
+            val slide = animateFloatAsState(
+                targetValue = if (panelOpen) 1f else 0f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMediumLow,
+                ),
+                label = "panel-slide",
             )
-            if (panelShare > 0.01f) {
-                SidePanel(state, actions, viewModel, Modifier.weight(panelShare).fillMaxHeight())
+            // slide.value is read inside the placement lambdas below, never in
+            // composition: that keeps the whole animation in the layout phase —
+            // no recomposition and no re-measure per frame, just two placements.
+            // Composed while it is on screen at all, including on the way out.
+            // derivedStateOf so this flips twice per open, rather than making
+            // the scaffold recompose on every frame of the animation.
+            val panelOnScreen by remember(panelOpen) {
+                derivedStateOf { panelOpen || slide.value > 0.001f }
             }
-            Box(Modifier.weight((10f - panelShare).coerceAtLeast(0.01f)).fillMaxHeight()) {
+            if (panelOnScreen) {
+                SidePanel(
+                    state, actions, viewModel,
+                    Modifier
+                        // Tucked under the rail when shut, flush with it when
+                        // open: the panel comes out of the button you pressed.
+                        .offset {
+                            IntOffset((panelWidth * (slide.value - 1f)).roundToPx(), 0)
+                        }
+                        .requiredWidth(panelWidth)
+                        .fillMaxHeight(),
+                )
+            }
+            Box(
+                Modifier
+                    .offset { IntOffset((panelWidth * slide.value).roundToPx(), 0) }
+                    .requiredWidth(paneWidth)
+                    .fillMaxHeight(),
+            ) {
             Column(Modifier.fillMaxSize()) {
                 // A maximised terminal takes the whole column so you can focus on
                 // it; the editor (and its tab bar) step aside until you restore.
@@ -327,6 +386,7 @@ fun IdeScaffold(state: IdeUiState, actions: IdeActions, viewModel: IdeViewModel)
                 }
             }
             } // Box: pane + full-screen exit
+            } // BoxWithConstraints: panel + pane
         }
         AnimatedVisibility(
             visible = WindowInsets.isImeVisible && !state.panelVisible,
