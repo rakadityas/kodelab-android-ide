@@ -80,7 +80,7 @@ object TerminalHost {
         val guest = svc.sandbox.takeIf { it.isInstalled }?.guestLocationOf(path)?.path ?: path
         // single-quote the path so spaces in a folder name survive
         val quoted = "'" + guest.replace("'", "'\\''") + "'"
-        existing.exec("cd $quoted", recall = false)
+        existing.exec("cd $quoted")
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

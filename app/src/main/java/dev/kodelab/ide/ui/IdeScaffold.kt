@@ -112,7 +112,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.derivedStateOf
@@ -136,9 +135,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -1681,13 +1678,8 @@ private fun TerminalPanel(state: IdeUiState, actions: IdeActions, modifier: Modi
         }.collect { value = it }
     }
 
-    var input by remember { mutableStateOf(TextFieldValue()) }
+    var input by remember { mutableStateOf("") }
     val inputFocus = remember { FocusRequester() }
-    // Where ↑/↓ have walked back to: -1 is "not browsing", 0 the most recent
-    // command. [draft] holds whatever was half-typed when the walk started, so
-    // coming back down returns it instead of an empty box.
-    var historyIndex by remember { mutableIntStateOf(-1) }
-    var draft by remember { mutableStateOf("") }
 
     val editMode = state.presets.editMode
     // The prompt is always typeable — reading mode only stops a tap on the
@@ -1863,39 +1855,6 @@ private fun TerminalPanel(state: IdeUiState, actions: IdeActions, modifier: Modi
 
         fun sendKey(ch: String) = send(TerminalKeys.key(ch, shift, alt, ctrl))
 
-        fun setInput(text: String) {
-            // Cursor to the end, the way a recalled line arrives in a real
-            // shell — the point of recalling is to edit the tail of it.
-            input = TextFieldValue(text, selection = TextRange(text.length))
-        }
-
-        /**
-         * Walk the prompt's own history: [delta] of +1 is one command further
-         * back, -1 one nearer the draft.
-         *
-         * The arrow can't simply go to the shell. Commands are submitted whole
-         * (ShellSession.exec), so readline's recalled line is echoed into the
-         * output above — which is a rendered transcript, not a text field, so
-         * the recalled command lands somewhere it can never be edited. The
-         * line has to come back to the box the keyboard is actually typing in.
-         *
-         * A full-screen program is the exception: inside vi or less the arrow
-         * is that program's, and there is no prompt to recall into.
-         */
-        fun recall(delta: Int) {
-            if (session?.alternateScreen == true || session?.applicationCursorKeys == true) {
-                sendCsi(if (delta > 0) 'A' else 'B')
-                return
-            }
-            val history = session?.history.orEmpty()
-            if (history.isEmpty()) return
-            if (historyIndex == -1) draft = input.text
-            val next = (historyIndex + delta).coerceIn(-1, history.size - 1)
-            if (next == historyIndex) return
-            historyIndex = next
-            setInput(if (next == -1) draft else history[history.size - 1 - next])
-        }
-
         Row(
             Modifier.fillMaxWidth().background(palette.panel).padding(horizontal = 6.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -1922,14 +1881,22 @@ private fun TerminalPanel(state: IdeUiState, actions: IdeActions, modifier: Modi
             Spacer(Modifier.width(8.dp))
             // Arrows in the inverted-T a physical keyboard uses: up centred
             // above down, left and right flanking it.
+            //
+            // All four go to the shell as raw escapes, ↑/↓ included. Recalling
+            // history into the prompt box instead was tried and reverted: far
+            // more than vi wants those keys — installers, pickers, pagers and
+            // anything drawing a menu inline read them without ever switching
+            // to the alternate screen, so there is no reliable way to tell
+            // "the user is at a prompt" from here, and guessing wrong leaves
+            // the arrows dead in the programs that need them most.
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                AccessoryKey("\u2191") { recall(1) }
+                AccessoryKey("\u2191") { sendCsi('A') }
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     AccessoryKey("\u2190") { sendCsi('D') }
-                    AccessoryKey("\u2193") { recall(-1) }
+                    AccessoryKey("\u2193") { sendCsi('B') }
                     AccessoryKey("\u2192") { sendCsi('C') }
                 }
             }
@@ -1946,10 +1913,10 @@ private fun TerminalPanel(state: IdeUiState, actions: IdeActions, modifier: Modi
                 // ctrl armed, typing c has to become ^C and go straight out,
                 // not land in the input box as the letter c.
                 onValueChange = { next ->
-                    val typed = next.text.drop(input.text.length)
+                    val typed = next.drop(input.length)
                     if ((ctrl || alt) && typed.length == 1) {
                         sendKey(typed)
-                        input = TextFieldValue()
+                        input = ""
                     } else {
                         input = next
                     }
@@ -1963,12 +1930,8 @@ private fun TerminalPanel(state: IdeUiState, actions: IdeActions, modifier: Modi
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send, autoCorrectEnabled = false),
                 keyboardActions = KeyboardActions(onSend = {
-                    val cmd = input.text
-                    input = TextFieldValue()
-                    // Submitting ends the walk: the next ↑ starts from the
-                    // command just run, which is now the most recent one.
-                    historyIndex = -1
-                    draft = ""
+                    val cmd = input
+                    input = ""
                     session?.exec(cmd)
                 }),
                 modifier = Modifier
