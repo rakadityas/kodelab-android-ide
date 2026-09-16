@@ -127,7 +127,6 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalDensity
@@ -1541,8 +1540,8 @@ private fun ModifierKey(label: String, armed: Boolean, onClick: () -> Unit) {
 @Composable
 private fun AccessoryKey(label: String, half: Boolean = false, onClick: () -> Unit) {
     val palette = LocalEditorPalette.current
-    // Sized to its label, with the old fixed width as a floor: "paste" is five
-    // characters and a 40dp box cut the e off.
+    // Sized to its label, with the old fixed width as a floor, so a key whose
+    // label runs past 40dp isn't clipped.
     Box(
         Modifier
             .widthIn(min = scaled(40.dp))
@@ -1680,7 +1679,6 @@ private fun TerminalPanel(state: IdeUiState, actions: IdeActions, modifier: Modi
 
     var input by remember { mutableStateOf("") }
     val inputFocus = remember { FocusRequester() }
-    val clipboard = LocalClipboardManager.current
 
     val editMode = state.presets.editMode
     // The prompt is always typeable — reading mode only stops a tap on the
@@ -1877,13 +1875,6 @@ private fun TerminalPanel(state: IdeUiState, actions: IdeActions, modifier: Modi
                     AccessoryKey("/") { sendKey("/") }
                     AccessoryKey("-") { sendKey("-") }
                     AccessoryKey("^C") { session?.sendInterrupt(); ctrl = false; alt = false; shift = false }
-                    // Long-press selects and copies from the output above; this
-                    // is the other half — the clipboard back into the shell.
-                    AccessoryKey("paste") {
-                        val text = clipboard.getText()?.text
-                        if (!text.isNullOrEmpty()) session?.paste(text)
-                        ctrl = false; alt = false; shift = false
-                    }
                 }
             }
             Spacer(Modifier.width(8.dp))

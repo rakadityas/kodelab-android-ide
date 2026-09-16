@@ -20,14 +20,20 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.LinkInteractionListener
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -57,14 +63,20 @@ fun MarkdownReader(
     val blocks = remember(source) { Markdown.parse(source) }
     val base = baseFontSizeSp.coerceIn(8, 40)
 
-    LazyColumn(
-        state = listState,
-        modifier = modifier.background(palette.surface),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        items(blocks.size) { idx ->
-            MarkdownBlock(blocks[idx], base, palette, onLinkClick)
+    // Long-press anywhere to select and copy, the way a browser's reading view
+    // behaves. Links stay tappable because they are link annotations rather
+    // than a tap handler on the whole paragraph — a ClickableText would eat the
+    // long-press before the selection ever started.
+    SelectionContainer {
+        LazyColumn(
+            state = listState,
+            modifier = modifier.background(palette.surface),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            items(blocks.size) { idx ->
+                MarkdownBlock(blocks[idx], base, palette, onLinkClick)
+            }
         }
     }
 }
@@ -196,28 +208,28 @@ private fun ClickableSpans(
     color: androidx.compose.ui.graphics.Color = palette.textPrimary,
     align: TextAlign = TextAlign.Start,
 ) {
-    val text = remember(spans, palette, weight, italic, color) {
-        annotate(spans, palette, weight, italic, color)
+    // Read through a holder so the annotated string survives recomposition even
+    // when the caller hands us a fresh lambda each time.
+    val click by rememberUpdatedState(onLinkClick)
+    val listener = remember {
+        LinkInteractionListener { link ->
+            (link as? LinkAnnotation.Clickable)?.let { click(it.tag) }
+        }
     }
-    androidx.compose.foundation.text.ClickableText(
+    val text = remember(spans, palette, weight, italic, color, listener) {
+        annotate(spans, palette, weight, italic, color, listener)
+    }
+    Text(
         text = text,
         // take the full width the window offers, so a rotation to landscape
         // reflows into the wider column instead of keeping the portrait measure
         modifier = Modifier.fillMaxWidth(),
-        style = androidx.compose.ui.text.TextStyle(
-            color = color,
-            fontSize = size,
-            lineHeight = lineHeight,
-            textAlign = align,
-        ),
-        onClick = { offset ->
-            text.getStringAnnotations(LINK_TAG, offset, offset).firstOrNull()
-                ?.let { onLinkClick(it.item) }
-        },
+        color = color,
+        fontSize = size,
+        lineHeight = lineHeight,
+        textAlign = align,
     )
 }
-
-private const val LINK_TAG = "kodelab.link"
 
 private fun annotate(
     spans: List<Markdown.Span>,
@@ -225,6 +237,7 @@ private fun annotate(
     weight: FontWeight,
     italic: Boolean,
     color: androidx.compose.ui.graphics.Color,
+    listener: LinkInteractionListener,
 ): AnnotatedString = buildAnnotatedString {
     spans.forEach { s ->
         val style = SpanStyle(
@@ -243,8 +256,14 @@ private fun annotate(
                 else -> null
             },
         )
-        if (s.link != null) pushStringAnnotation(LINK_TAG, s.link)
-        withStyle(style) { append(s.text) }
-        if (s.link != null) pop()
+        if (s.link == null) {
+            withStyle(style) { append(s.text) }
+        } else {
+            // A link annotation, not a tap handler on the paragraph: the text
+            // stays selectable and only the link's own range takes the tap.
+            withLink(LinkAnnotation.Clickable(s.link, styles = null, linkInteractionListener = listener)) {
+                withStyle(style) { append(s.text) }
+            }
+        }
     }
 }
