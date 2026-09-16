@@ -112,6 +112,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.derivedStateOf
@@ -135,12 +136,15 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import dev.kodelab.ide.editor.EditorWebView
+import dev.kodelab.ide.BuildConfig
 import dev.kodelab.ide.editor.Markdown
 import dev.kodelab.ide.git.GitFileStatus
 import dev.kodelab.ide.terminal.SandboxInstaller
@@ -1677,8 +1681,13 @@ private fun TerminalPanel(state: IdeUiState, actions: IdeActions, modifier: Modi
         }.collect { value = it }
     }
 
-    var input by remember { mutableStateOf("") }
+    var input by remember { mutableStateOf(TextFieldValue()) }
     val inputFocus = remember { FocusRequester() }
+    // Where ↑/↓ have walked back to: -1 is "not browsing", 0 the most recent
+    // command. [draft] holds whatever was half-typed when the walk started, so
+    // coming back down returns it instead of an empty box.
+    var historyIndex by remember { mutableIntStateOf(-1) }
+    var draft by remember { mutableStateOf("") }
 
     val editMode = state.presets.editMode
     // The prompt is always typeable — reading mode only stops a tap on the
@@ -1854,6 +1863,39 @@ private fun TerminalPanel(state: IdeUiState, actions: IdeActions, modifier: Modi
 
         fun sendKey(ch: String) = send(TerminalKeys.key(ch, shift, alt, ctrl))
 
+        fun setInput(text: String) {
+            // Cursor to the end, the way a recalled line arrives in a real
+            // shell — the point of recalling is to edit the tail of it.
+            input = TextFieldValue(text, selection = TextRange(text.length))
+        }
+
+        /**
+         * Walk the prompt's own history: [delta] of +1 is one command further
+         * back, -1 one nearer the draft.
+         *
+         * The arrow can't simply go to the shell. Commands are submitted whole
+         * (ShellSession.exec), so readline's recalled line is echoed into the
+         * output above — which is a rendered transcript, not a text field, so
+         * the recalled command lands somewhere it can never be edited. The
+         * line has to come back to the box the keyboard is actually typing in.
+         *
+         * A full-screen program is the exception: inside vi or less the arrow
+         * is that program's, and there is no prompt to recall into.
+         */
+        fun recall(delta: Int) {
+            if (session?.alternateScreen == true || session?.applicationCursorKeys == true) {
+                sendCsi(if (delta > 0) 'A' else 'B')
+                return
+            }
+            val history = session?.history.orEmpty()
+            if (history.isEmpty()) return
+            if (historyIndex == -1) draft = input.text
+            val next = (historyIndex + delta).coerceIn(-1, history.size - 1)
+            if (next == historyIndex) return
+            historyIndex = next
+            setInput(if (next == -1) draft else history[history.size - 1 - next])
+        }
+
         Row(
             Modifier.fillMaxWidth().background(palette.panel).padding(horizontal = 6.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -1884,10 +1926,10 @@ private fun TerminalPanel(state: IdeUiState, actions: IdeActions, modifier: Modi
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                AccessoryKey("\u2191") { sendCsi('A') }
+                AccessoryKey("\u2191") { recall(1) }
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     AccessoryKey("\u2190") { sendCsi('D') }
-                    AccessoryKey("\u2193") { sendCsi('B') }
+                    AccessoryKey("\u2193") { recall(-1) }
                     AccessoryKey("\u2192") { sendCsi('C') }
                 }
             }
@@ -1904,10 +1946,10 @@ private fun TerminalPanel(state: IdeUiState, actions: IdeActions, modifier: Modi
                 // ctrl armed, typing c has to become ^C and go straight out,
                 // not land in the input box as the letter c.
                 onValueChange = { next ->
-                    val typed = next.drop(input.length)
+                    val typed = next.text.drop(input.text.length)
                     if ((ctrl || alt) && typed.length == 1) {
                         sendKey(typed)
-                        input = ""
+                        input = TextFieldValue()
                     } else {
                         input = next
                     }
@@ -1921,8 +1963,12 @@ private fun TerminalPanel(state: IdeUiState, actions: IdeActions, modifier: Modi
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send, autoCorrectEnabled = false),
                 keyboardActions = KeyboardActions(onSend = {
-                    val cmd = input
-                    input = ""
+                    val cmd = input.text
+                    input = TextFieldValue()
+                    // Submitting ends the walk: the next ↑ starts from the
+                    // command just run, which is now the most recent one.
+                    historyIndex = -1
+                    draft = ""
                     session?.exec(cmd)
                 }),
                 modifier = Modifier
@@ -2129,6 +2175,21 @@ private fun SettingsDialog(
                         "Apache-2.0. You're welcome to study this, build on it and take " +
                         "inspiration from it — keep the attribution when you do.",
                     color = palette.textMuted, fontSize = 11.sp, lineHeight = 16.sp,
+                )
+                // Last line on the page: the build someone is actually running,
+                // which is the first thing a bug report needs. The code and the
+                // debug marker distinguish two installs that share a version
+                // name — a sideloaded release from a build off this machine.
+                Text(
+                    buildString {
+                        append("Version ")
+                        append(BuildConfig.VERSION_NAME)
+                        append(" (")
+                        append(BuildConfig.VERSION_CODE)
+                        append(")")
+                        if (BuildConfig.DEBUG) append(" · debug")
+                    },
+                    color = palette.textMuted, fontSize = 11.sp,
                 )
                 Spacer(Modifier.height(8.dp))
             }

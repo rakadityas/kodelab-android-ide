@@ -72,6 +72,23 @@ class ShellSession(
      */
     val applicationCursorKeys: Boolean get() = emulator.applicationCursorKeys
 
+    /**
+     * True while a full-screen program (vi, less, htop) owns the screen. With
+     * [applicationCursorKeys] this is what tells the UI that arrow keys belong
+     * to that program rather than to the prompt's own history.
+     */
+    val alternateScreen: Boolean get() = emulator.alternateScreen
+
+    private val _history = ArrayList<String>()
+
+    /**
+     * Commands submitted at the prompt, oldest first. The shell keeps its own
+     * readline history, but that can only ever be recalled into the shell's
+     * line — which, since [exec] sends whole lines, is not where the user is
+     * typing. This is the copy the prompt box recalls from.
+     */
+    val history: List<String> get() = _history
+
     /** Plain-text mirror (scrollback) so late-binding panels still see history. */
     /** False once the shell has exited (ctrl-D, `exit`, or a crash). */
     private val _alive = MutableStateFlow(true)
@@ -269,7 +286,19 @@ class ShellSession(
     }
 
     /** Run one command line. A real pty echoes by itself; the pipe fallback doesn't. */
-    fun exec(command: String) {
+    /**
+     * Run [command] as if typed at the prompt. [recall] is false for commands
+     * the app issues on the user's behalf (the `cd` that follows a workspace
+     * switch), which should not come back when they press ↑ — they never typed
+     * them, and they'd sit in front of the command they actually want.
+     */
+    @JvmOverloads
+    fun exec(command: String, recall: Boolean = true) {
+        if (recall && command.isNotBlank() && _history.lastOrNull() != command) {
+            _history += command
+            // A session can outlive a long day of work; keep the recent end.
+            if (_history.size > HISTORY_LIMIT) _history.subList(0, _history.size - HISTORY_LIMIT).clear()
+        }
         if (!isPty) append("$ $command\n")
         write(command + "\r")
     }
@@ -313,3 +342,6 @@ class ShellSession(
         scope.cancel()
     }
 }
+
+/** Plenty for recall at the prompt, small enough to stay cheap to hold. */
+private const val HISTORY_LIMIT = 500
