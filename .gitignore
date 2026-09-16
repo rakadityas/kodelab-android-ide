@@ -12,3 +12,9 @@ local.properties
 web/node_modules/
 web/dist/
 app/src/main/assets/webapp/vendor/
+
+# release signing — the key and its passwords never go in git.
+# Back up keystore/ separately: losing it means never being able to ship an
+# update that existing installs will accept.
+keystore/
+keystore.properties

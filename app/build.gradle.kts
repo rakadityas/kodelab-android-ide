@@ -1,3 +1,14 @@
+import java.util.Properties
+
+// Release signing. The keystore and its passwords live outside git (see
+// .gitignore); a clone without keystore.properties still builds every other
+// variant, and only assembleRelease comes out unsigned.
+val signingProps = Properties().apply {
+    val f = rootProject.file("keystore.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+val hasSigning = signingProps.getProperty("storeFile") != null
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -26,8 +37,20 @@ android {
         vectorDrawables { useSupportLibrary = true }
     }
 
+    signingConfigs {
+        if (hasSigning) {
+            create("release") {
+                storeFile = rootProject.file(signingProps.getProperty("storeFile"))
+                storePassword = signingProps.getProperty("storePassword")
+                keyAlias = signingProps.getProperty("keyAlias")
+                keyPassword = signingProps.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            if (hasSigning) signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -35,6 +58,13 @@ android {
         debug {
             applicationIdSuffix = ".debug"
         }
+    }
+
+    lint {
+        // targetSdk 28 is a hard requirement, not neglect — see the comment on
+        // targetSdk above (W^X from API 29 breaks proot). This check is fatal
+        // by default and would fail every release build for that one choice.
+        disable += "ExpiredTargetSdkVersion"
     }
 
     ndkVersion = "26.3.11579264"

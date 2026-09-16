@@ -61,18 +61,36 @@ scripts/build-web.sh
 ./gradlew :app:testDebugUnitTest
 ```
 
+To build the shipped artifact instead, use `./gradlew :app:assembleRelease` —
+minified, and signed if `keystore.properties` points at a keystore (the
+project's own key is not in this repo, so your build gets an unsigned APK unless
+you supply one).
+
 If Gradle can't find the SDK, create `local.properties` with
 `sdk.dir=/absolute/path/to/Android/sdk` (macOS default:
 `~/Library/Android/sdk`). Point `JAVA_HOME` at a JDK 17 — the one bundled with
 Android Studio works: `export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"`.
 
-## Install on a local Android device
+## Install on an Android device
 
-Kodelab is an ordinary debuggable APK — install it over USB with `adb`, or copy
-the file to the device and sideload it. It targets **arm64** devices on Android
-10+ (the Linux sandbox binaries are aarch64).
+It targets **arm64** devices on Android 10+ (the Linux sandbox binaries are
+aarch64). You do not need to build anything — grab the signed APK:
 
-### Option A — over USB with adb (simplest)
+### Option A — download the APK from GitHub (no computer needed)
+
+1. Open **[the latest release](https://github.com/rakadityas/kodelab-android-ide/releases/latest)**
+   on the phone and download `app-release.apk` under **Assets**.
+2. Tap the downloaded file. The first time, Android asks you to allow
+   **"Install unknown apps"** for whichever app you opened it from (Chrome /
+   Files) — enable it and continue.
+3. Launch **Kodelab** from the app drawer.
+
+The release APK is signed with the project's own key, not Google's. Android
+will say the app is from an unknown developer; that is expected for a direct
+APK. Because the signing key is per-project, you cannot upgrade a release build
+over a debug build (or the reverse) — uninstall the other one first.
+
+### Option B — over USB with adb (if you built it yourself)
 
 1. **On the device:** enable developer options (Settings → About phone → tap
    *Build number* 7 times), then turn on **USB debugging** (Settings → System →
@@ -93,18 +111,17 @@ the file to the device and sideload it. It targets **arm64** devices on Android
 If you have more than one device/emulator attached, target one with
 `adb -s <serial> install …`.
 
-### Option B — sideload the APK file (no computer needed after copying)
+### Option C — sideload a file you already have
 
-1. Copy `app-debug.apk` to the device (USB transfer, Drive, email to yourself,
+1. Copy the APK to the device (USB transfer, Drive, email to yourself,
    `adb push`, etc.).
-2. On the device, open the file with the Files app and confirm the install. The
-   first time, Android asks you to allow **"Install unknown apps"** for whichever
-   app you opened it from (Files / your browser) — enable it and continue.
+2. On the device, open the file with the Files app and confirm the install,
+   allowing **"Install unknown apps"** as above.
 
 > F-Droid / direct APK is the intended distribution channel. Kodelab is **not**
 > a Play Store app: it downloads and executes a Linux userland (proot + Alpine),
 > which is what makes the terminal a real dev environment, and that sits outside
-> Play policy. Installing a debug build is expected.
+> Play policy.
 
 ### First run — set up the Linux terminal
 
