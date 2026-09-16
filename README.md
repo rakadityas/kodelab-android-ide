@@ -83,7 +83,25 @@ aarch64). You do not need to build anything — grab the signed APK:
 2. Tap the downloaded file. The first time, Android asks you to allow
    **"Install unknown apps"** for whichever app you opened it from (Chrome /
    Files) — enable it and continue.
-3. Launch **Kodelab** from the app drawer.
+3. Android then warns: *"This app was built for an older version of Android and
+   doesn't include the latest privacy protections."* **This is expected — tap
+   "Install anyway"** (on some versions it's behind **More details**). See
+   [below](#why-that-older-version-of-android-warning-appears) for why.
+4. Launch **Kodelab** from the app drawer.
+
+#### Why that "older version of Android" warning appears
+
+Kodelab targets API 28 on purpose. From API 29 Android enforces W^X — it
+refuses to `execve()` or `mmap(PROT_EXEC)` any file in app storage — and that
+single rule breaks proot and its ptrace loader, which is to say the entire
+Linux terminal. Targeting 28 is what keeps `apk add git` working, and it is the
+same approach Termux takes. The warning is Android telling you the app opted
+out of some newer platform defaults; it is not a sign of a damaged or unsafe
+download.
+
+The trade-off is deliberate and documented in `app/build.gradle.kts`. If a
+future Android release refuses the install outright rather than warning, use
+adb (Option B), which does not apply that check.
 
 The release APK is signed with the project's own key, not Google's. Android
 will say the app is from an unknown developer; that is expected for a direct
