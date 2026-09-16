@@ -31,8 +31,8 @@ android {
         // "built for an older Android" store warning doesn't apply — see
         // docs/architecture.md and the README status table.
         targetSdk = 28
-        versionCode = 1
-        versionName = "0.1.0-m0"
+        versionCode = 2
+        versionName = "0.1.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }
