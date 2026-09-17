@@ -13,6 +13,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 
 /**
  * Kodelab's own theme system. Bundled themes are hand-tuned for small high-DPI
@@ -37,14 +38,26 @@ data class EditorPalette(
     val crit: Color,
     val isDark: Boolean,
 ) {
-    /** The token map handed to the web editor so Monaco/xterm match the native chrome. */
+    /**
+     * What to draw *on* [accent] — a label on an accent-filled chip, the icons in
+     * the status bar. It cannot be a constant: the accent is yellow in Kodelab's
+     * own themes and dark teal in plenty of imported ones, and white on yellow
+     * is unreadable. Derived rather than stored so every palette — built-in,
+     * imported, or folded out of a code scheme — gets it for free.
+     *
+     * 0.179 is where contrast against white and against black are equal, so
+     * whichever side of it the accent falls on is the legible choice.
+     */
+    val onAccent: Color get() = if (accent.luminance() > 0.179f) Color(0xFF14191C) else Color.White
+
+    /** The token map handed to the web editor so it matches the native chrome. */
     fun toWebTokens(): Map<String, String> = mapOf(
         "chrome" to chrome.hex(), "panel" to panel.hex(), "surface" to surface.hex(),
         "overlay" to overlay.hex(), "border" to border.hex(),
         "textPrimary" to textPrimary.hex(), "textMuted" to textMuted.hex(),
         "accent" to accent.hex(), "accentMuted" to accentMuted.hex(),
         "good" to good.hex(), "warn" to warn.hex(), "crit" to crit.hex(),
-        "base" to if (isDark) "vs-dark" else "vs",
+        "base" to if (isDark) "dark" else "light",
     )
 }
 
@@ -59,13 +72,22 @@ object KodelabThemes {
     const val DARK = "kodelab-dark"
     const val SYSTEM = "system"
 
+    /**
+     * Yellow on paper. The accent is a deep gold rather than the icon's bright
+     * yellow for one reason: it has to work as *text* and as small icons on a
+     * near-white surface, and bright yellow on white is invisible. This reads as
+     * the same colour family at 5.4:1 against the page.
+     *
+     * The greys are warmed to match — same lightness as before, hue moved off
+     * blue — so the accent looks chosen rather than dropped in.
+     */
     val light = EditorPalette(
-        chrome = Color(0xFFE9EEF0), panel = Color(0xFFF0F4F5), surface = Color(0xFFFCFDFD),
-        overlay = Color(0xFFFFFFFF), border = Color(0xFFD5DDE0),
-        textPrimary = Color(0xFF14191C), textMuted = Color(0xFF5C6B70),
-        accent = Color(0xFF0C7D8C), accentMuted = Color(0xFF7FB0B7),
-        tabActive = Color(0xFFFCFDFD), tabInactive = Color(0xFFE3E9EB),
-        good = Color(0xFF2F7D4F), warn = Color(0xFFB26A12), crit = Color(0xFFB23B3B),
+        chrome = Color(0xFFF0EEE7), panel = Color(0xFFF5F3EC), surface = Color(0xFFFDFDFB),
+        overlay = Color(0xFFFFFFFF), border = Color(0xFFDEDACE),
+        textPrimary = Color(0xFF1C1A14), textMuted = Color(0xFF6B6455),
+        accent = Color(0xFF8F6200), accentMuted = Color(0xFFB98C33),
+        tabActive = Color(0xFFFDFDFB), tabInactive = Color(0xFFE9E6DC),
+        good = Color(0xFF2F7D4F), warn = Color(0xFFB5541A), crit = Color(0xFFB23B3B),
         isDark = false,
     )
 
@@ -73,14 +95,19 @@ object KodelabThemes {
      * AMOLED-first: the editor and terminal are true black, so on an OLED panel
      * those pixels are off. The chrome around them is lifted just enough to
      * read as structure rather than as a lighter shade of grey.
+     *
+     * Against black the accent can be the icon's yellow exactly — 13:1, and the
+     * one saturated thing on the screen. [onAccent] turns the text on top of it
+     * dark, which is the whole reason that property exists. `warn` moves to
+     * orange so a warning still reads as a warning next to it.
      */
     val dark = EditorPalette(
-        chrome = Color(0xFF0A0E10), panel = Color(0xFF11161A), surface = Color(0xFF000000),
-        overlay = Color(0xFF161D21), border = Color(0xFF232C31),
-        textPrimary = Color(0xFFE7EDEE), textMuted = Color(0xFF9AACB2),
-        accent = Color(0xFF3FB6C4), accentMuted = Color(0xFF2A6870),
-        tabActive = Color(0xFF000000), tabInactive = Color(0xFF11161A),
-        good = Color(0xFF5CC088), warn = Color(0xFFE0A24E), crit = Color(0xFFE07A7A),
+        chrome = Color(0xFF0F0D0A), panel = Color(0xFF16130E), surface = Color(0xFF000000),
+        overlay = Color(0xFF1C1812), border = Color(0xFF2C2619),
+        textPrimary = Color(0xFFEFEAE0), textMuted = Color(0xFFADA595),
+        accent = Color(0xFFFFC400), accentMuted = Color(0xFF7A6220),
+        tabActive = Color(0xFF000000), tabInactive = Color(0xFF16130E),
+        good = Color(0xFF5CC088), warn = Color(0xFFF08A3C), crit = Color(0xFFE07A7A),
         isDark = true,
     )
 

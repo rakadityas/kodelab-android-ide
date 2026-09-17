@@ -15,9 +15,9 @@ See [`docs/architecture.md`](docs/architecture.md) and [`docs/IP-SAFETY.md`](doc
 | --- | --- |
 | Compose shell: activity rail, side panel, tab bar, status bar, terminal panel | ✅ working |
 | Open folder (SAF tree picker), lazy file tree, open files into tabs | ✅ working |
-| Monaco (MIT) in WebView: per-tab models, syntax highlighting, edit + save to disk | ✅ working |
-| Soft-keyboard editing inside Monaco (WebView focus fix + worker proxy) | ✅ working |
-| Theme picker — native chrome + Monaco + terminal follow one token set | ✅ working |
+| CodeMirror 6 (MIT) in WebView: per-tab documents, syntax highlighting, edit + save to disk | ✅ working |
+| Soft-keyboard editing in the WebView (view-focus fix), native touch selection + momentum scrolling | ✅ working |
+| Theme picker — native chrome + editor + terminal follow one token set | ✅ working |
 | Named code schemes: Solarized Dark/Light, Nord, Dracula, Gruvbox Dark, One Dark, Paper — token colours, not just a background | ✅ working |
 | Terminal colour schemes: Midnight, Ember, Phosphor, Paper, or follow the theme | ✅ working |
 | Settings page: theme, font sizes, word wrap, touch-target scale, selection delay — all saved per folder | ✅ working |
@@ -37,9 +37,9 @@ See [`docs/architecture.md`](docs/architecture.md) and [`docs/IP-SAFETY.md`](doc
 | Search across files: recursive SAF walk, results grouped by file, tap a hit to jump to the line | ✅ working |
 | Git panel over the sandbox CLI: branch/ahead-behind, stage/unstage, commit, open a file's diff | ✅ working (needs `apk add git`) |
 | Git for folders the sandbox can't reach: `.git` read directly through SAF for branch + changed files (read-only) | ✅ working |
-| Theme import: load a standard color-theme JSON → Kodelab palette (native + Monaco + terminal) | ✅ working |
+| Theme import: load a standard color-theme JSON → Kodelab palette (native + editor + terminal) | ✅ working |
 | Declarative extensions (data-only): themes/snippets/grammars/LSP recipes with an SPDX license audit | ✅ working — see [`examples/extensions/`](examples/extensions/) |
-| LSP client + server supervisor: framing/JSON-RPC, sandbox transport, diagnostics → Monaco markers | 🟡 wired (protocol unit-tested; a live server run + completion/hover need on-device validation) |
+| LSP client + server supervisor: framing/JSON-RPC, sandbox transport, diagnostics → editor markers | 🟡 wired (protocol unit-tested; a live server run + completion/hover need on-device validation) |
 | Open VSX catalogue, DAP, remote/SSH | ⛔ later — see `requirement.txt` action items |
 
 ## Build
@@ -50,8 +50,9 @@ runtime-downloaded proot/Alpine binaries are allowed to `exec` from app storage
 (the Termux approach); distribution is via F-Droid / direct APK, not Play.
 
 ```bash
-# 1. (recommended) vendor the editor core — Monaco + xterm.js, both MIT.
-#    Without this the editor shows a "run build-web.sh" placeholder.
+# 1. (recommended) vendor the editor core — CodeMirror 6 + xterm.js, both MIT.
+#    npm install + an esbuild bundle; without it the editor pane shows a
+#    "couldn't load" message instead of code.
 scripts/build-web.sh
 
 # 2. build the debug APK
@@ -194,7 +195,7 @@ how you get the screen back on a phone.
   the named code schemes (Solarized Dark/Light, Nord, Dracula, Gruvbox Dark, One
   Dark, Paper); each row previews the chrome, page and token colours it will
   apply. *Import theme…* loads a standard color-theme `.json` into
-  `.kodelab/themes/` and applies it to the native chrome, Monaco and the
+  `.kodelab/themes/` and applies it to the native chrome, the editor and the
   terminal.
 - **Windows** — the "new window" rail icon opens a second Kodelab window (great
   on tablets, DeX and ChromeOS) sharing the same terminal.
@@ -229,7 +230,29 @@ design are his.
 Kodelab's own code: [Apache-2.0](LICENSE). Third-party components and their licenses:
 [`NOTICE`](NOTICE).
 
-You are welcome to study this project, build on it, and take inspiration from it.
-Apache-2.0 asks one thing in return: keep the attribution. Section 4 requires the
-[`NOTICE`](NOTICE) file to travel with any copy or derivative work, so please
-credit Raka Aditya Soenarno as the original author of Kodelab.
+### Using Kodelab, or taking inspiration from it
+
+**It's free. Please write to me first, and credit me.**
+
+You are welcome to study this project, build on it, and take inspiration from it —
+that is why it is open source, and I will not charge you or turn you down. What I
+ask is this:
+
+1. **Email me before you start** — [rakadityas97@gmail.com](mailto:rakadityas97@gmail.com).
+   Tell me what you are building. This is a request, not a condition: Apache-2.0
+   gives you the right to proceed without asking, and I am not taking that back.
+   I ask because I would like to know where Kodelab ends up, and because the
+   answer is yes.
+2. **Credit me.** This one *is* a condition. Apache-2.0 §4 requires the
+   [`NOTICE`](NOTICE) file to travel with any copy or derivative work, with its
+   attribution notices intact — and that applies whether you ship the code, a
+   fork, or a product built on its design.
+
+Credit it like this, somewhere a user or reader can actually find it (an About
+screen, a README, a credits page):
+
+> Based on Kodelab by Raka Aditya Soenarno (https://github.com/rakadityas),
+> used under the Apache License 2.0.
+
+Please don't imply I endorse or maintain your version, and please use your own
+name and icon rather than Kodelab's.

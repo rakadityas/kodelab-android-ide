@@ -8,8 +8,8 @@ import androidx.compose.ui.graphics.Color
  *
  * A scheme is more than a background: without token colours, switching "theme"
  * only changes the paper the same syntax highlighting is printed on. So each
- * one carries the handful of token roles Monaco actually emits, and those are
- * handed to it as theme rules.
+ * one carries seven token roles, and the web side spreads each role across the
+ * syntax tags that read as the same thing.
  *
  * The published schemes below are re-expressed in this type from their own
  * projects' documented colour values, each MIT-licensed and credited in NOTICE.
@@ -36,48 +36,27 @@ data class CodeScheme(
     val operator: Color,
 ) {
     /**
-     * Monaco's theme payload. Token names are the ones its tokenizers emit;
-     * rule colours are sent without the leading '#', which is what
-     * `editor.defineTheme` expects.
+     * The scheme as the web editor wants it: flat, every colour a #RRGGBB
+     * string, and the token roles left as roles. Which syntax tag each role
+     * paints is CodeMirror's business, so that mapping lives in
+     * web/src/editor-core.mjs rather than here.
      */
     fun toWebTheme(): Map<String, Any> = mapOf(
-        "base" to if (isDark) "vs-dark" else "vs",
+        "dark" to isDark,
         "background" to background.hexRgb(),
         "foreground" to foreground.hexRgb(),
         "lineNumbers" to lineNumbers.hexRgb(),
         "cursor" to cursor.hexRgb(),
         "selection" to selection.hexRgb(),
         "currentLine" to currentLine.hexRgb(),
-        "rules" to listOf(
-            rule("comment", comment, "italic"),
-            rule("string", string),
-            rule("string.escape", operator),
-            rule("number", number),
-            rule("regexp", string),
-            rule("keyword", keyword),
-            rule("keyword.operator", operator),
-            rule("operator", operator),
-            rule("delimiter", operator),
-            rule("type", type),
-            rule("type.identifier", type),
-            rule("constructor", function),
-            rule("function", function),
-            rule("variable.predefined", function),
-            rule("constant", number),
-            rule("annotation", type),
-            rule("attribute.name", type),
-            rule("attribute.value", string),
-            rule("tag", keyword),
-            rule("metatag", keyword),
-        ),
+        "comment" to comment.hexRgb(),
+        "keyword" to keyword.hexRgb(),
+        "string" to string.hexRgb(),
+        "number" to number.hexRgb(),
+        "type" to type.hexRgb(),
+        "function" to function.hexRgb(),
+        "operator" to operator.hexRgb(),
     )
-
-    private fun rule(token: String, color: Color, fontStyle: String? = null): Map<String, String> =
-        buildMap {
-            put("token", token)
-            put("foreground", color.hexRgb().removePrefix("#"))
-            fontStyle?.let { put("fontStyle", it) }
-        }
 }
 
 private fun Color.hexRgb(): String =
@@ -111,6 +90,43 @@ object CodeSchemes {
         type = palette.accentMuted,
         function = palette.accent,
         operator = palette.textMuted,
+    )
+
+    /**
+     * The code area for Kodelab Dark and Kodelab Light.
+     *
+     * These are authored rather than derived. [fromPalette] spreads a *chrome*
+     * palette over the syntax roles, and a chrome palette does not have enough
+     * of them: `type` came out of `accentMuted`, which is a colour picked to sit
+     * quietly behind other things, and `keyword`/`function` and
+     * `comment`/`operator` collapsed onto one value each. The result reads as
+     * one washed-out hue with occasional highlights.
+     *
+     * So each role gets its own hue here, and every one of them is chosen to
+     * clear 4.5:1 against the editor background — see the contrast table in the
+     * commit that introduced them. Gold stays on `keyword` because it is the
+     * most frequent coloured token on screen and it is Kodelab's colour.
+     */
+    val kodelabDark = CodeScheme(
+        id = "kodelab-dark-code", name = "Kodelab Dark", isDark = true,
+        background = Color(0xFF000000), foreground = Color(0xFFEFEAE0),
+        lineNumbers = Color(0xFF7C7568), cursor = Color(0xFFFFC400),
+        selection = Color(0xFF3D3418), currentLine = Color(0xFF16130E),
+        comment = Color(0xFF8A8578), keyword = Color(0xFFFFC400),
+        string = Color(0xFF7EE081), number = Color(0xFFFF9E64),
+        type = Color(0xFF6FD6E8), function = Color(0xFF8AB4FF),
+        operator = Color(0xFFFF7BAC),
+    )
+
+    val kodelabLight = CodeScheme(
+        id = "kodelab-light-code", name = "Kodelab Light", isDark = false,
+        background = Color(0xFFFDFDFB), foreground = Color(0xFF1C1A14),
+        lineNumbers = Color(0xFF9A9280), cursor = Color(0xFF8F6200),
+        selection = Color(0xFFF6E3A6), currentLine = Color(0xFFF5F3EC),
+        comment = Color(0xFF7A7261), keyword = Color(0xFF8F6200),
+        string = Color(0xFF1F7A46), number = Color(0xFFB03A00),
+        type = Color(0xFF7B3FA8), function = Color(0xFF0B5FA5),
+        operator = Color(0xFFAD2B6B),
     )
 
     /**

@@ -1,9 +1,9 @@
 package dev.kodelab.ide.editor
 
 /**
- * File-extension → Monaco language id. Monaco ships tokenizers for all of these
- * out of the box (monaco-editor `min/vs`, MIT), so REQ 3 "multiple languages"
- * works offline with no per-language downloads.
+ * File-extension → language id. Every id here resolves to a parser bundled with
+ * the editor (see web/src/editor-core.mjs), so REQ 3 "multiple languages" works
+ * offline with no per-language downloads.
  */
 object Languages {
 
@@ -33,7 +33,7 @@ object Languages {
         "css" to "css", "scss" to "scss", "less" to "less",
         "xml" to "xml", "svg" to "xml",
         "yaml" to "yaml", "yml" to "yaml",
-        "toml" to "ini", "ini" to "ini", "properties" to "ini",
+        "toml" to "toml", "ini" to "ini", "properties" to "ini",
         "md" to "markdown", "markdown" to "markdown",
         "sql" to "sql",
         "graphql" to "graphql", "gql" to "graphql",
@@ -43,6 +43,7 @@ object Languages {
         "pl" to "perl", "pm" to "perl",
         "hcl" to "hcl", "tf" to "hcl",
         "proto" to "protobuf",
+        "diff" to "diff", "patch" to "diff",
     )
 
     private val byFileName = mapOf(

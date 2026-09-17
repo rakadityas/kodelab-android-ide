@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- KodelabThemes.dark.panel — see values/colors.xml. -->
-    <color name="kodelab_window">#FF11161A</color>
+    <color name="kodelab_window">#FF16130E</color>
 </resources>

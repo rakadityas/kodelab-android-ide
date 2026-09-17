@@ -11,11 +11,12 @@
     <div id="fallback" class="pane" hidden>
       <div class="hint">The editor couldn't load. Please reinstall or update Kodelab.</div>
     </div>
-    <div id="monaco" class="pane" hidden></div>
+    <div id="editor" class="pane" hidden></div>
     <!-- Selection affordance: a single button that appears when you highlight
          text, and only expands into a menu when tapped — so a selection never
-         covers itself with a menu you didn't ask for. A long press opens the
-         menu directly, which is how Paste is reached with nothing selected.
+         covers itself with a menu you didn't ask for. Selecting and long-press
+         are the platform's gestures (the code is a contenteditable), so this
+         sits alongside Android's own toolbar and carries what that one can't.
          Items that need a selection are hidden when there isn't one. -->
     <button id="sel-chip" type="button" hidden>Actions</button>
     <div id="sel-menu" hidden>
@@ -28,6 +29,9 @@
       <button type="button" data-act="dismiss" class="dismiss">Dismiss</button>
     </div>
   </div>
+  <!-- CodeMirror 6, bundled locally by scripts/build-web.sh. If it is missing
+       app.js falls through to the message above rather than a blank screen. -->
+  <script src="./vendor/codemirror/codemirror.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>

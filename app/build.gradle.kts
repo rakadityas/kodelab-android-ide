@@ -108,6 +108,7 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.webkit)
     implementation(libs.androidx.documentfile)
+    implementation(libs.androidx.core.splashscreen)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
     // Apache-2.0 / public domain — used to unpack the runtime-downloaded
@@ -125,16 +126,17 @@ dependencies {
 
 /**
  * The editor web app lives in src/main/assets/webapp (first-party, committed).
- * Its third-party deps (Monaco + xterm.js, both MIT) are vendored into
- * assets/webapp/vendor by `scripts/build-web.sh` — fetched from npm, served from
- * the app's own origin at runtime, never from a CDN. That folder is git-ignored.
+ * Its third-party deps (CodeMirror 6 + xterm.js, both MIT) are vendored into
+ * assets/webapp/vendor by `scripts/build-web.sh` — fetched from npm, bundled
+ * with esbuild, served from the app's own origin at runtime, never from a CDN.
+ * That folder is git-ignored.
  */
 tasks.named("preBuild") {
     doFirst {
-        val vendor = file("src/main/assets/webapp/vendor/monaco")
+        val vendor = file("src/main/assets/webapp/vendor/codemirror/codemirror.js")
         if (!vendor.exists()) {
-            logger.warn("Kodelab: Monaco not vendored — run scripts/build-web.sh. " +
-                "Editor will use the textarea fallback.")
+            logger.warn("Kodelab: CodeMirror not vendored — run scripts/build-web.sh. " +
+                "The editor pane will show the \"couldn't load\" message.")
         }
     }
 }

@@ -71,8 +71,8 @@ class IdeViewModel(
     // Following a reference is only half a move: you have to get back. This is
     // the same model a browser (or VS Code's alt-←) uses — a list of visited
     // places with a cursor into it, where a new jump truncates whatever was
-    // ahead. Recorded here rather than in Monaco because a jump usually lands
-    // in a different file, and Monaco only knows about one model at a time.
+    // ahead. Recorded here rather than in the editor because a jump usually
+    // lands in a different file, and the editor holds one document at a time.
 
     /** The last cursor line reported per tab, so "where I left" is the real line. */
     private val cursorLines = mutableMapOf<String, Int>()
@@ -466,7 +466,7 @@ class IdeViewModel(
         }
     }
 
-    override fun findInFile() = sendEditorCommand("actions.find")
+    override fun findInFile() = sendEditorCommand("find")
 
     override fun scrollEditorTo(where: String) = editor.scrollTo(where)
 

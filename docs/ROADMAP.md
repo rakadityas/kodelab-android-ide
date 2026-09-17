@@ -2,11 +2,12 @@
 
 ## M0 — spike (current)
 - [x] Compose shell: activity rail, side panel, tab bar, status bar, terminal panel
-- [x] Monaco-in-WebView loader + JSON-RPC bridge + theme token sync
+- [x] Editor-in-WebView loader + JSON-RPC bridge + theme token sync
 - [x] Theme system (Kodelab Light / Dark / system)
 - [x] `WorkspacePresets` model + resolution order + `SettingsStore`
 - [x] Shared `TerminalSessionService` (foreground) + `ShellSession` placeholder
-- [ ] Touch-editing spike → **go/no-go: Monaco vs CodeMirror 6**
+- [x] Touch-editing spike → **CodeMirror 6 wins**: a real scroller gives platform
+      momentum, and contenteditable gives native selection handles. Monaco is gone.
 - [ ] proot + Alpine bootstrap + JNI PTY shim + xterm.js: real shell
 
 ## M1 — MVP
@@ -19,7 +20,7 @@
 - [ ] `.kodelab/workspace.json` read/write + live re-apply on folder switch
 
 ## M2 — v1
-- [ ] LSP integration + `monaco-languageclient` + server supervisor + install recipes
+- [ ] LSP integration + server supervisor + install recipes
 - [ ] Theme import (VS Code JSON shape), theme picker, per-workspace themes
 - [ ] Search & replace across files; diff view; Git UI over the CLI
 - [ ] Settings UI; "Open source notices" screen; SBOM in CI
@@ -35,7 +36,7 @@
 - [ ] Remote / SSH workspaces; settings + preset sync
 
 ## Top risks
-- Monaco touch UX — biggest product risk; M0 spike decides it.
+- ~~Monaco touch UX~~ — settled: the editor is CodeMirror 6.
 - Background process survival — OEM battery managers; test Samsung / Xiaomi / Pixel.
 - proot performance — heavy toolchains slow under ptrace; prefer Alpine.
 - WebView fragmentation — gate on a minimum Chromium WebView version.

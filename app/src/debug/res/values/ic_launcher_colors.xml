@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug builds wear a pale green icon. Debug installs next to a release build
+  rather than over it (applicationIdSuffix = ".debug"), so without this the
+  launcher shows two identical Kodelab icons and you find out which one you
+  opened by what breaks. Release keeps the yellow.
+-->
+<resources>
+    <color name="ic_launcher_background">#A5D6A7</color>
+    <color name="ic_launcher_foreground">#14191C</color>
+</resources>

@@ -28,10 +28,11 @@ private const val APP_ORIGIN = "https://appassets.androidplatform.net"
 /**
  * Focus the WebView on a *tap*, never mid-scroll.
  *
- * Requesting focus while a finger is dragging makes Monaco focus its hidden
- * textarea, and the browser then scrolls that textarea into view — the editor
- * jumping back up by a few pixels part-way through a scroll. Only a touch that
- * ends without travelling further than the system's touch slop counts as a tap.
+ * The WebView needs Android view focus before the soft keyboard will open for
+ * the editor's contenteditable, but taking it mid-drag makes the browser scroll
+ * the caret back into view — the editor jumping part-way through a scroll. Only
+ * a touch that ends without travelling further than the system's touch slop
+ * counts as a tap.
  */
 private class TapToFocus(
     private val enabled: () -> Boolean,
@@ -56,7 +57,7 @@ private class TapToFocus(
                 }
             }
         }
-        return false // never consume: Monaco still gets the gesture
+        return false // never consume: the editor still gets the gesture
     }
 }
 
@@ -77,7 +78,7 @@ class EditorController {
 
     /**
      * [palette] dresses the page around the editor; [scheme], when given, is the
-     * code area's own colours and syntax rules (see CodeScheme).
+     * code area's own colours and syntax roles (see CodeScheme).
      */
     fun applyTheme(palette: EditorPalette, scheme: CodeScheme? = null) {
         val tokens = JSONObject()
@@ -87,24 +88,8 @@ class EditorController {
         send("theme.apply", params)
     }
 
-    private fun Map<String, Any>.toJson(): JSONObject {
-        val out = JSONObject()
-        forEach { (k, v) ->
-            when (v) {
-                is List<*> -> {
-                    val arr = JSONArray()
-                    v.filterIsInstance<Map<*, *>>().forEach { rule ->
-                        val o = JSONObject()
-                        rule.forEach { (rk, rv) -> o.put(rk.toString(), rv) }
-                        arr.put(o)
-                    }
-                    out.put(k, arr)
-                }
-                else -> out.put(k, v)
-            }
-        }
-        return out
-    }
+    private fun Map<String, Any>.toJson(): JSONObject =
+        JSONObject().also { out -> forEach { (k, v) -> out.put(k, v) } }
 
     /** Reading controls from the workspace presets (REQ 2/8). */
     fun applySettings(presets: WorkspacePresets) {
@@ -119,7 +104,7 @@ class EditorController {
                 .put("tabWidth", presets.tabWidth)
                 .put("insertSpaces", presets.insertSpaces)
                 .put("selectionDelayMs", presets.selectionDelayMs)
-                // reading mode -> Monaco read-only, so the soft keyboard never opens
+                // reading mode -> editor read-only, so the soft keyboard never opens
                 .put("readOnly", !presets.editMode),
         )
     }
@@ -130,7 +115,7 @@ class EditorController {
             JSONObject().put("tabId", tabId).put("text", text).put("languageId", languageId),
         )
 
-    /** Render LSP diagnostics as Monaco markers on a tab (converts to 1-based coords + severity). */
+    /** Render LSP diagnostics on a tab (converts to 1-based coords + marker severity). */
     fun pushDiagnostics(tabId: String, diagnostics: List<LspDiagnostic>) {
         val markers = JSONArray()
         diagnostics.forEach { d ->
@@ -139,15 +124,18 @@ class EditorController {
                     .put("startLineNumber", d.startLine + 1).put("startColumn", d.startChar + 1)
                     .put("endLineNumber", d.endLine + 1).put("endColumn", d.endChar + 1)
                     .put("message", d.message)
-                    .put("severity", monacoSeverity(d.severity))
+                    .put("severity", markerSeverity(d.severity))
                     .put("source", d.source ?: "lsp"),
             )
         }
         send("lsp.diagnostics", JSONObject().put("tabId", tabId).put("markers", markers))
     }
 
-    /** LSP severity (1 Error…4 Hint) -> Monaco MarkerSeverity (Error 8, Warning 4, Info 2, Hint 1). */
-    private fun monacoSeverity(lsp: Int): Int = when (lsp) {
+    /**
+     * LSP severity (1 Error…4 Hint) -> the marker severity the web side turns
+     * into a CodeMirror diagnostic (Error 8, Warning 4, Info 2, Hint 1).
+     */
+    private fun markerSeverity(lsp: Int): Int = when (lsp) {
         1 -> 8
         2 -> 4
         3 -> 2
@@ -157,7 +145,7 @@ class EditorController {
     fun showBuffer(tabId: String) = send("buffer.show", JSONObject().put("tabId", tabId))
     fun revealLine(tabId: String, line: Int) =
         send("buffer.reveal", JSONObject().put("tabId", tabId).put("line", line))
-    /** Insert a snippet (with $1/$0 tab stops) at the cursor via Monaco. */
+    /** Insert a snippet (with $1/$0 tab stops) at the cursor. */
     fun insertSnippet(snippet: String) =
         send("input.snippet", JSONObject().put("snippet", snippet))
     fun closeBuffer(tabId: String) = send("buffer.close", JSONObject().put("tabId", tabId))
@@ -209,7 +197,7 @@ fun EditorWebView(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT,
                 )
                 // Without explicit view focus the soft keyboard never opens for
-                // Monaco's hidden textarea when the WebView sits inside Compose.
+                // the editor's contenteditable when the WebView sits inside Compose.
                 isFocusable = true
                 isFocusableInTouchMode = true
                 // Only pull view focus (which raises the keyboard) in edit
@@ -223,6 +211,13 @@ fun EditorWebView(
                     setSupportZoom(false)
                     mediaPlaybackRequiresUserGesture = true
                 }
+                // Do NOT suppress the system selection toolbar by returning null
+                // from startActionMode. Chromium's selection path is
+                // showActionModeOrClearOnFailure(): a null action mode is read
+                // as failure and it calls clearSelection(), so every double-tap
+                // and long-press selection is destroyed the instant Android
+                // makes one. The floating toolbar is the price of the native
+                // selection handles, and worth it.
                 WebView.setWebContentsDebuggingEnabled(true)
                 webChromeClient = object : android.webkit.WebChromeClient() {
                     override fun onConsoleMessage(msg: android.webkit.ConsoleMessage): Boolean {
@@ -252,7 +247,7 @@ fun EditorWebView(
         },
         update = {
             controller.webView = it
-            controller.applyTheme(palette, codeScheme) // recomposes on theme change — keep Monaco in sync
+            controller.applyTheme(palette, codeScheme) // recomposes on theme change — keep the editor in sync
             if (!editMode) {
                 it.clearFocus()
                 val imm = it.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)

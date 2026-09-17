@@ -2,6 +2,7 @@ package dev.kodelab.ide
 
 import android.content.Intent
 import android.os.Bundle
+import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -9,6 +10,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.ViewModelProvider
@@ -30,6 +32,14 @@ class MainActivity : ComponentActivity() {
     private companion object {
         /** Set on windows launched from the app, which skip the session restore. */
         const val EXTRA_FRESH_WINDOW = "dev.kodelab.ide.FRESH_WINDOW"
+
+        /**
+         * How long a cold start holds the splash. A release build reaches its
+         * first frame in well under this, so without a floor the splash is a
+         * flicker — which is exactly the difference you see between a debug and
+         * a release install. Short enough to stay out of the way.
+         */
+        const val SPLASH_MIN_MS = 500L
     }
 
     private val viewModel: IdeViewModel by viewModels {
@@ -52,12 +62,25 @@ class MainActivity : ComponentActivity() {
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Before super.onCreate: installSplashScreen() is what swaps the launch
+        // theme for the real one, and it has to happen before the window is set up.
+        val splash = installSplashScreen()
+        val coldStart = savedInstanceState == null &&
+            !intent.getBooleanExtra(EXTRA_FRESH_WINDOW, false)
+        if (coldStart) {
+            // Hold it only on a cold start. Opening a second window (REQ 7) from
+            // inside the app should feel instant, not ceremonial.
+            val shownAt = SystemClock.uptimeMillis()
+            splash.setKeepOnScreenCondition {
+                SystemClock.uptimeMillis() - shownAt < SPLASH_MIN_MS
+            }
+        }
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
         // A cold start comes back to the folder and files you left open; a window
         // opened from inside the app (REQ 7) deliberately starts empty.
-        if (savedInstanceState == null && !intent.getBooleanExtra(EXTRA_FRESH_WINDOW, false)) {
+        if (coldStart) {
             viewModel.restoreSession()
         }
 

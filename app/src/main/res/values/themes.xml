@@ -8,4 +8,20 @@
              Compose frame are the same colour. -->
         <item name="android:windowBackground">@color/kodelab_window</item>
     </style>
+
+    <!--
+      The launch theme. Without it the "splash" is only the system's preview
+      window, which lasts exactly as long as the app takes to draw — long enough
+      to see in a debug build, gone in a release one. This makes it a real
+      screen instead of a side effect of being slow.
+
+      It borrows the launcher icon's own colours, so the splash is yellow for a
+      release build and pale green for a debug one: which build you just opened
+      is answered before the first frame.
+    -->
+    <style name="Theme.Kodelab.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/ic_launcher_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/Theme.Kodelab</item>
+    </style>
 </resources>

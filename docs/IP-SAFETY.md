@@ -5,9 +5,9 @@ Standing rules for everyone working on Kodelab. CI enforces the automatable ones
 - [ ] Original name, logo, icon set, and copy. No "Visual Studio", "VS Code",
       "Code–OSS", "Cursor", "IntelliJ", "Android Studio" or their marks anywhere in
       the UI, store listing, or metadata.
-- [ ] Monaco, xterm.js, vscode-textmate, vscode-oniguruma consumed as published npm
-      packages under MIT — unmodified, or forked openly with attribution. LICENSE
-      files shipped in an in-app "Open source notices" screen.
+- [ ] CodeMirror 6 (`@codemirror/*`, `@lezer/*`) and xterm.js consumed as published
+      npm packages under MIT — unmodified, bundled but not forked. LICENSE files
+      shipped in an in-app "Open source notices" screen.
 - [ ] Every TextMate / Tree-sitter grammar audited before bundling. `docs/GRAMMARS.md`
       records source repo + SPDX license per grammar. Only MIT / BSD / Apache-2.0 /
       Unlicense / CC0 grammars ship in the app; others are user-downloaded with their

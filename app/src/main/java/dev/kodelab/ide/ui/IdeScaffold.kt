@@ -189,7 +189,7 @@ fun IdeScaffold(state: IdeUiState, actions: IdeActions, viewModel: IdeViewModel)
     var settingsOpen by remember { mutableStateOf(false) }
     // Owned here, not inside the reader: the floating top/bottom buttons drive
     // whichever view is actually on screen, and in reading mode that is this
-    // document rather than the Monaco buffer behind it.
+    // document rather than the editor buffer behind it.
     val readerScroll = rememberLazyListState()
     val scaffoldScope = rememberCoroutineScope()
     // One theme dresses everything: the chrome takes the palette, the editor
@@ -294,7 +294,7 @@ fun IdeScaffold(state: IdeUiState, actions: IdeActions, viewModel: IdeViewModel)
                 ) {
                     // Native views always draw above Compose content, so the
                     // WebView is shrunk (not removed) while reading — that keeps
-                    // every open Monaco buffer, and its unsaved edits, alive.
+                    // every open editor buffer, and its unsaved edits, alive.
                     val reading = state.readerTabId != null && state.readerTabId == state.activeTabId
                     val empty = state.activeTabId == null
                     EditorWebView(
@@ -343,7 +343,7 @@ fun IdeScaffold(state: IdeUiState, actions: IdeActions, viewModel: IdeViewModel)
                                 actions = actions,
                                 // In reading mode the buttons have to move the
                                 // document on screen, not the editor hidden
-                                // behind it — and Monaco's find widget has
+                                // behind it — and the find panel has
                                 // nothing to search there, so it steps aside.
                                 reading = reading,
                                 onTop = {
@@ -502,8 +502,8 @@ private fun ActivityRail(
  *
  * These are the three moves a phone has no key for. Back and forward walk the
  * navigation history — what alt-← does on a desktop, and the thing that was
- * missing after following a reference into another file. Find opens Monaco's
- * own search box, which otherwise needs ctrl-F.
+ * missing after following a reference into another file. Find opens the
+ * editor's own search panel, which otherwise needs ctrl-F.
  *
  * The pair stays in place and greys out when there is nowhere to go, rather
  * than appearing and disappearing under the thumb that is reaching for it.
@@ -608,7 +608,7 @@ private fun FullScreenExitButton(onClick: () -> Unit) {
             Icon(
                 Icons.Filled.FullscreenExit,
                 contentDescription = "Exit full screen",
-                tint = Color.White,
+                tint = palette.onAccent,
                 modifier = Modifier.size(scaled(26.dp)),
             )
         }
@@ -1336,7 +1336,7 @@ private fun FileOpDialog(op: FileOpRequest, actions: IdeActions) {
     )
 }
 
-/** Keys Monaco needs that the soft keyboard makes painful (REQ 2 comfort). */
+/** Keys the editor needs that the soft keyboard makes painful (REQ 2 comfort). */
 @Composable
 private fun EditorAccessoryBar(actions: IdeActions) {
     val palette = LocalEditorPalette.current
@@ -1531,7 +1531,7 @@ private fun ModifierKey(label: String, armed: Boolean, onClick: () -> Unit) {
     ) {
         Text(
             label,
-            color = if (armed) Color.White else palette.textPrimary,
+            color = if (armed) palette.onAccent else palette.textPrimary,
             fontSize = 13.sp,
             fontFamily = FontFamily.Monospace,
         )
@@ -2180,8 +2180,10 @@ private fun codeSchemeFor(
     appPalette: EditorPalette,
 ): CodeScheme = CodeSchemes.byId(id)
     ?: when (id) {
-        KodelabThemes.DARK -> CodeSchemes.fromPalette(KodelabThemes.dark)
-        KodelabThemes.LIGHT -> CodeSchemes.fromPalette(KodelabThemes.light)
+        // The two built-ins have hand-authored code schemes; deriving them from
+        // the chrome palette left every token the same washed-out gold.
+        KodelabThemes.DARK -> CodeSchemes.kodelabDark
+        KodelabThemes.LIGHT -> CodeSchemes.kodelabLight
         else -> custom.firstOrNull { it.id == id }?.palette
             ?.let { CodeSchemes.fromPalette(it) }
             ?: CodeSchemes.fromPalette(appPalette)
@@ -2318,7 +2320,7 @@ private fun TouchSizePicker(current: Float, onSet: (Float) -> Unit) {
             ) {
                 Text(
                     label,
-                    color = if (selected) Color.White else palette.textMuted,
+                    color = if (selected) palette.onAccent else palette.textMuted,
                     fontSize = 12.sp,
                 )
             }
@@ -2426,13 +2428,13 @@ private fun StatusBar(state: IdeUiState, actions: IdeActions) {
     ) {
         Icon(
             Icons.Filled.Search, contentDescription = "Command palette",
-            tint = Color.White, modifier = Modifier.size(14.dp).clickable { actions.openPalette() },
+            tint = palette.onAccent, modifier = Modifier.size(14.dp).clickable { actions.openPalette() },
         )
         Text(
-            state.workspaceName, color = Color.White, fontSize = 11.sp, maxLines = 1,
+            state.workspaceName, color = palette.onAccent, fontSize = 11.sp, maxLines = 1,
             modifier = Modifier.clickable { actions.openPalette() },
         )
-        Text(state.statusText, color = Color.White.copy(alpha = 0.85f), fontSize = 11.sp, maxLines = 1)
+        Text(state.statusText, color = palette.onAccent.copy(alpha = 0.85f), fontSize = 11.sp, maxLines = 1)
         Spacer(Modifier.weight(1f))
     }
 }

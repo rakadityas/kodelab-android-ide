@@ -17,8 +17,8 @@ A · Native shell        Kotlin + Jetpack Compose
     settings (DataStore) · command palette · native input accessory bar
         │  JSON-RPC over WebView bridge (KodelabHost.post / window.__kodelab.receive)
 B · Editing surface      WebView, offline asset bundle (app's own origin)
-    Monaco (MIT) · xterm.js (MIT) · tab/split UI · theme engine ·
-    vscode-textmate (MIT) · monaco-languageclient (MIT/EPL)
+    CodeMirror 6 (MIT) · xterm.js (MIT) · tab/split UI · theme engine ·
+    Lezer grammars (MIT) · @codemirror/legacy-modes (MIT)
         │  LSP over stdio · PTY byte stream · inotify file events
 C · Process services     native + JNI
     PTY host (original shim over bionic forkpty) · session multiplexer ·
@@ -31,16 +31,21 @@ D · Linux sandbox        userspace, no root
 
 ## Editor (REQ 1–3)
 
-- Monaco in the WebView, workers bundled locally, never a CDN.
-- Tabs / splits / editor groups are our own layer around Monaco instances.
-- **Touch risk:** Monaco has no native touch selection and weak on-screen-keyboard
-  handling. Mitigations: native input accessory bar (Tab/Esc/arrows/symbols),
-  selection handles driving Monaco's selection API, native long-press menu.
-  If the M0 spike fails, fall back to **CodeMirror 6 (MIT)** — keep the editor core
-  behind an interface (`EditorController`).
-- Syntax: TextMate grammars via `vscode-textmate` + `vscode-oniguruma` (WASM).
+- CodeMirror 6 in the WebView, bundled locally by `scripts/build-web.sh`, never
+  a CDN. One `EditorView`; one `EditorState` per tab.
+- Tabs / splits / editor groups are our own layer, driven through `EditorController`.
+- **Touch:** this is why the editor is CodeMirror and not Monaco. Monaco scrolls
+  by transforming its content inside a fixed box and synthesises its own fling,
+  which never feels like the platform; and it keeps the text in a hidden
+  textarea, so there is no native selection to grab. CodeMirror scrolls a real
+  `overflow: auto` element and puts the code in a contenteditable, so momentum,
+  overscroll, drag handles and the magnifier are the WebView's own. Kodelab adds
+  the native input accessory bar (Tab/arrows/symbols), its own selection menu,
+  and suppresses the system selection toolbar so there is only one menu.
+- Syntax: Lezer grammars for the languages that have one, `@codemirror/legacy-modes`
+  for the long tail — all bundled, all offline. See `web/src/editor-core.mjs`.
 - Intelligence: LSP servers installed by the user into the sandbox, supervised by
-  layer C, bridged into Monaco over stdio. Nothing proprietary bundled.
+  layer C, bridged into the editor over stdio. Nothing proprietary bundled.
 
 ## Theming (REQ 2)
 
@@ -48,7 +53,9 @@ One theme = UI tokens + TextMate scope rules + editor typography, stored as JSON
 our schema. Importer reads the widely used VS Code theme JSON *shape* (a data
 format, not code); we ship our own Kodelab Light/Dark, not anyone's bundled themes.
 Native palette is exported to the web layer as tokens (`EditorPalette.toWebTokens`)
-so Monaco and xterm match the chrome.
+so the editor and the terminal match the chrome. A `CodeScheme` adds the code
+area's own colours as seven token *roles*; which syntax tags each role paints is
+decided web-side, in `web/src/editor-core.mjs`.
 
 ## Terminal (REQ 5) — shared, not per-window
 

@@ -201,7 +201,7 @@ interface IdeActions {
     /** Back to the place this jump came from (VS Code's alt-left). */
     fun navigateBack()
     fun navigateForward()
-    /** Monaco's find widget — the only way to search a file without a keyboard. */
+    /** The editor's find panel — the only way to search a file without a keyboard. */
     fun findInFile()
     /** Jump the editor view to "top" or "bottom". */
     fun scrollEditorTo(where: String)
@@ -210,7 +210,7 @@ interface IdeActions {
     fun requestFileOp(kind: FileOpKind, target: FileNode?)
     fun confirmFileOp(name: String)
     fun cancelFileOp()
-    /** Accessory-bar key: runs a Monaco command ("tab", "undo", "cursorLeft", ...). */
+    /** Accessory-bar key: runs an editor command ("tab", "undo", "cursorLeft", ...). */
     fun sendEditorCommand(command: String)
     /** Accessory-bar key: inserts literal text at the cursor. */
     fun sendEditorText(text: String)

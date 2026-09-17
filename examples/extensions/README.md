@@ -51,10 +51,11 @@ See [`kodelab.sample-pack/kodelab-extension.json`](kodelab.sample-pack/kodelab-e
 - **themes** — a standard color-theme JSON file; resolved and added to the theme
   picker. Works today.
 - **snippets** — appear in the command palette ("Snippet: …") and insert with
-  Monaco tab stops (`$1`, `$0`). Works today.
+  VS Code-style tab stops (`${1:name}`, `$1`, `$0`); repeats of a number are one
+  field, so filling it fills every copy. Works today.
 - **grammars** — language/extension registration. Parsed and listed now; full
   TextMate tokenization arrives with the grammar engine.
 - **languageServers** — how to install (`install`, run once in the terminal) and
   launch (`command`) a server in the Linux sandbox. The LSP client starts it via
-  *Start language server* in the command palette; diagnostics render as Monaco
-  markers. Completion/hover and live-edit sync are in progress.
+  *Start language server* in the command palette; diagnostics render as
+  underlines in the editor. Completion/hover and live-edit sync are in progress.

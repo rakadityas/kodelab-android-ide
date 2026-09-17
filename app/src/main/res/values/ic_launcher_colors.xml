@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The launcher icon's two colours, kept as resources so a build variant can
+  repaint the icon without forking the artwork: src/debug overrides both to a
+  pale green, because debug installs alongside a release install (the
+  applicationIdSuffix) and two identical icons in the launcher is a trap.
+
+  Yellow is Kodelab's colour — the same accent the Dark and Light themes are
+  built around, see theme/KodelabTheme.kt. The mark is near-black rather than
+  white: white on yellow is unreadable at launcher size.
+-->
+<resources>
+    <color name="ic_launcher_background">#FFC400</color>
+    <color name="ic_launcher_foreground">#14191C</color>
+</resources>

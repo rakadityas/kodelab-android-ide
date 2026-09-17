@@ -32,6 +32,7 @@
         <!-- Multi-window (REQ 7): each window is its own document task. -->
         <activity
             android:name=".MainActivity"
+            android:theme="@style/Theme.Kodelab.Splash"
             android:exported="true"
             android:documentLaunchMode="intoExisting"
             android:resizeableActivity="true"

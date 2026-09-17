@@ -12,6 +12,27 @@ derivative work, and that the attribution notices in it be preserved. Keep this
 paragraph, and credit Raka Aditya Soenarno as the original author, in anything
 derived from Kodelab.
 
+HOW TO CREDIT
+
+  Put this where a user or a reader can find it — an About screen, a README, a
+  credits page — not only in a source comment:
+
+      Based on Kodelab by Raka Aditya Soenarno
+      (https://github.com/rakadityas), used under the Apache License 2.0.
+
+  This is required by the licence, for a copy, a fork, or a product built on
+  Kodelab's design.
+
+A REQUEST, NOT A CONDITION
+
+  Before you build on Kodelab, please email the author at rakadityas97@gmail.com
+  and say what you are making. It is free and the answer is yes; Apache-2.0
+  already gives you the right to proceed without asking, and that right is not
+  being withdrawn. The author would simply like to know where this work ends up.
+
+  Please also use your own product name and icon, and do not suggest that the
+  author endorses or maintains your version.
+
 This product includes software developed by third parties, used under their
 respective licenses. None of the components below are copied into Kodelab's own
 source; they are consumed as published packages or executed as separate processes.
@@ -19,9 +40,11 @@ source; they are consumed as published packages or executed as separate processe
 --------------------------------------------------------------------------------
 Bundled in the APK (permissive licenses — safe to redistribute):
 
-  Monaco Editor              MIT        https://github.com/microsoft/monaco-editor
-    - the editor component only; NOT Visual Studio Code, no VS Code branding,
-      product.json, telemetry, or bundled extensions.
+  CodeMirror 6               MIT        https://github.com/codemirror
+    - the @codemirror/* and @lezer/* packages, bundled unmodified into one
+      script by scripts/build-web.sh. Copyright (c) by Marijn Haverbeke and
+      others. NOT Visual Studio Code: no VS Code code, branding, product.json,
+      telemetry, or bundled extensions anywhere in Kodelab.
   xterm.js / @xterm/xterm    MIT        https://github.com/xtermjs/xterm.js
   @xterm/addon-fit           MIT
   AndroidX / Jetpack Compose Apache-2.0 https://developer.android.com
@@ -33,9 +56,12 @@ Bundled in the APK (permissive licenses — safe to redistribute):
   XZ for Java                Public Domain https://tukaani.org/xz/java.html
   JetBrains Mono (font)      SIL OFL 1.1 https://github.com/JetBrains/JetBrainsMono
 
-TextMate / Tree-sitter grammars bundled for syntax highlighting are listed
-individually in docs/GRAMMARS.md with their SPDX license; only MIT / BSD /
-Apache-2.0 / Unlicense / CC0 grammars are shipped in the app.
+The language grammars bundled for syntax highlighting ship inside the CodeMirror
+bundle above and are MIT under the same copyright: the Lezer parsers in
+@codemirror/lang-* and the CodeMirror 5 stream modes in @codemirror/legacy-modes.
+Any TextMate / Tree-sitter grammar added later is listed individually in
+docs/GRAMMARS.md with its SPDX license; only MIT / BSD / Apache-2.0 / Unlicense /
+CC0 grammars are shipped in the app.
 
 --------------------------------------------------------------------------------
 Downloaded at runtime from the projects' own servers, NOT redistributed here:
