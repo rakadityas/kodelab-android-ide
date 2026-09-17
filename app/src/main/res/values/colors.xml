@@ -6,5 +6,5 @@
       tabs — so launching is seamless rather than a flash of a different grey.
       Keep in step with KodelabTheme.kt.
     -->
-    <color name="kodelab_window">#FFF5F3EC</color>
+    <color name="kodelab_window">#FFF8F8F8</color>
 </resources>

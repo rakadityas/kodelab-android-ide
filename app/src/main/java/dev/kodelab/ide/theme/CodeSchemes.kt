@@ -120,10 +120,12 @@ object CodeSchemes {
 
     val kodelabLight = CodeScheme(
         id = "kodelab-light-code", name = "Kodelab Light", isDark = false,
-        background = Color(0xFFFDFDFB), foreground = Color(0xFF1C1A14),
-        lineNumbers = Color(0xFF9A9280), cursor = Color(0xFF8F6200),
-        selection = Color(0xFFF6E3A6), currentLine = Color(0xFFF5F3EC),
-        comment = Color(0xFF7A7261), keyword = Color(0xFF8F6200),
+        background = Color(0xFFFFFFFF), foreground = Color(0xFF1F1F1F),
+        lineNumbers = Color(0xFF9B9B9B), cursor = Color(0xFF8F6200),
+        // Blue reads as "selected text" everywhere; a yellow band here would be
+        // mistaken for a search highlight, and the page is meant to be white.
+        selection = Color(0xFFCCE4F7), currentLine = Color(0xFFF5F5F5),
+        comment = Color(0xFF6E7681), keyword = Color(0xFF8F6200),
         string = Color(0xFF1F7A46), number = Color(0xFFB03A00),
         type = Color(0xFF7B3FA8), function = Color(0xFF0B5FA5),
         operator = Color(0xFFAD2B6B),

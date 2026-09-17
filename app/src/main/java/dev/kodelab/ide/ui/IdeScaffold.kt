@@ -135,6 +135,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -794,7 +795,9 @@ private fun SearchPanel(state: IdeUiState, actions: IdeActions) {
                         Text(
                             searchHitLine(m.text, m.start, m.end, palette),
                             fontSize = 12.sp, maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.weight(1f),
                         )
                     }
                 }
@@ -803,18 +806,61 @@ private fun SearchPanel(state: IdeUiState, actions: IdeActions) {
     }
 }
 
+/** Characters of run-up kept before a match before the line is wound forward. */
+private const val HIT_LEAD_IN = 14
+
+/** The slice of a hit line that is actually shown. [start]/[end] index [text]. */
+internal data class HitWindow(
+    val text: String,
+    val start: Int,
+    val end: Int,
+    /** Whether anything was dropped off the front, and so needs an ellipsis. */
+    val elided: Boolean,
+)
+
+/**
+ * Wind a hit line forward so the match is on screen, and say what was dropped.
+ *
+ * Split out from the styling because this is the part that can be wrong: the
+ * offsets arrive as indices into the untrimmed line and have to survive two
+ * shifts — the leading whitespace, and the run-up — without drifting off the
+ * match or past the end of the string.
+ */
+internal fun hitWindow(text: String, start: Int, end: Int): HitWindow {
+    val leading = text.takeWhile { it == ' ' || it == '\t' }.length
+    val body = text.drop(leading)
+    // Coerced against the *trimmed* line: these index into `body`, not `text`.
+    val s = (start - leading).coerceIn(0, body.length)
+    val e = (end - leading).coerceIn(s, body.length)
+    if (s <= HIT_LEAD_IN) return HitWindow(body, s, e, elided = false)
+    val skipped = s - HIT_LEAD_IN
+    return HitWindow(body.drop(skipped), s - skipped, e - skipped, elided = true)
+}
+
+/**
+ * One search hit: the line, with the matched span picked out.
+ *
+ * The row is one line high and clipped at the panel's edge, so a line long
+ * enough to overflow it used to be shown from column one — and the match, which
+ * for "find references" is usually well into the line, was cut off the right
+ * hand side. A result you cannot read is not a result. So the line is wound
+ * forward to just before the match and the skipped run-up is marked with an
+ * ellipsis, which keeps the match on screen whatever the indentation.
+ */
 private fun searchHitLine(
     text: String,
     start: Int,
     end: Int,
     palette: EditorPalette,
 ): androidx.compose.ui.text.AnnotatedString = androidx.compose.ui.text.buildAnnotatedString {
-    // Trim leading whitespace for readability but keep the match visible.
-    val leading = text.takeWhile { it == ' ' || it == '\t' }.length
-    val s = (start - leading).coerceIn(0, text.length)
-    val e = (end - leading).coerceIn(s, text.length)
-    val body = text.drop(leading)
-    pushStyle(androidx.compose.ui.text.SpanStyle(color = palette.textMuted))
+    val (body, s, e, elided) = hitWindow(text, start, end)
+    val muted = androidx.compose.ui.text.SpanStyle(color = palette.textMuted)
+    if (elided) {
+        pushStyle(muted)
+        append("…")
+        pop()
+    }
+    pushStyle(muted)
     append(body.take(s))
     pop()
     pushStyle(
@@ -826,7 +872,7 @@ private fun searchHitLine(
     )
     append(body.substring(s, e))
     pop()
-    pushStyle(androidx.compose.ui.text.SpanStyle(color = palette.textMuted))
+    pushStyle(muted)
     append(body.drop(e))
     pop()
 }

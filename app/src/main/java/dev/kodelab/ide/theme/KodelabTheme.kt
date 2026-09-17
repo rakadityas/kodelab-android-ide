@@ -73,21 +73,23 @@ object KodelabThemes {
     const val SYSTEM = "system"
 
     /**
-     * Yellow on paper. The accent is a deep gold rather than the icon's bright
-     * yellow for one reason: it has to work as *text* and as small icons on a
-     * near-white surface, and bright yellow on white is invisible. This reads as
-     * the same colour family at 5.4:1 against the page.
+     * Paper, not parchment. The surfaces are neutral greys on a white page —
+     * the arrangement a desktop editor's light theme uses — because a warm tint
+     * across every panel reads as a colour cast rather than as a theme, and it
+     * is the editor's own background that people stare at for hours.
      *
-     * The greys are warmed to match — same lightness as before, hue moved off
-     * blue — so the accent looks chosen rather than dropped in.
+     * Gold is kept for the accent alone, where it is the brand and nothing
+     * else: bright yellow can't be used here, since the accent has to work as
+     * text and as small icons on white, so it is a deep gold at 5.4:1. The dark
+     * theme is where yellow gets to be yellow.
      */
     val light = EditorPalette(
-        chrome = Color(0xFFF0EEE7), panel = Color(0xFFF5F3EC), surface = Color(0xFFFDFDFB),
-        overlay = Color(0xFFFFFFFF), border = Color(0xFFDEDACE),
-        textPrimary = Color(0xFF1C1A14), textMuted = Color(0xFF6B6455),
-        accent = Color(0xFF8F6200), accentMuted = Color(0xFFB98C33),
-        tabActive = Color(0xFFFDFDFB), tabInactive = Color(0xFFE9E6DC),
-        good = Color(0xFF2F7D4F), warn = Color(0xFFB5541A), crit = Color(0xFFB23B3B),
+        chrome = Color(0xFFF3F3F3), panel = Color(0xFFF8F8F8), surface = Color(0xFFFFFFFF),
+        overlay = Color(0xFFFFFFFF), border = Color(0xFFE1E1E1),
+        textPrimary = Color(0xFF1F1F1F), textMuted = Color(0xFF5F6368),
+        accent = Color(0xFF8F6200), accentMuted = Color(0xFFB8892E),
+        tabActive = Color(0xFFFFFFFF), tabInactive = Color(0xFFECECEC),
+        good = Color(0xFF1F7A46), warn = Color(0xFFB5541A), crit = Color(0xFFB23B3B),
         isDark = false,
     )
 
